@@ -421,8 +421,9 @@ export default function Workbench({
               newChat();
             }}
             className="wordmark"
+            aria-label="Workbench — new project"
           >
-            Workbench
+            <WorkbenchLogo />
           </a>
           <Button
             variant="ghost"

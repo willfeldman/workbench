@@ -1814,3 +1814,5 @@ textarea {
 .select-option[data-highlighted] {
   background: #f3f4ef;
 }
+
+.wordmark .workbench-logo { width: 30px; height: 34px; margin: 0; display:block; }
