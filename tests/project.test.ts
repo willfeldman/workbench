@@ -50,7 +50,8 @@ test("quantities round to whole packs and unknown prices stay unknown", () => {
 });
 test("owned materials do not inflate remaining cost", () => {
   const s = exampleSpec();
-  assert.equal(totals(s, { cedar: "owned" }).total, 35);
+  assert.equal(totals(s, { screws: "owned" }).total, 20.98);
+  assert.equal(totals(s, { cedar: "owned" }).unknown, 1);
   assert.equal(formatLength(25.4, "imperial"), "1″");
 });
 test("dimensions trigger review of affected completed work without erasing it", () => {

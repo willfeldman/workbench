@@ -1,14 +1,15 @@
 "use client";
-import { Component, Suspense, useMemo, useState } from "react";
+import { Component, Suspense, useMemo, useState, useEffect } from "react";
 import { Canvas, useThree } from "@react-three/fiber";
 import {
   OrbitControls,
   ContactShadows,
   Html,
   Line,
-  RoundedBox,
+  useTexture,
 } from "@react-three/drei";
 import * as THREE from "three";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { RotateCcw, Ruler, Expand, Box } from "lucide-react";
 import { Button } from "./ui/button";
 import {
@@ -53,10 +54,12 @@ function Part({
   node,
   muted,
   wood,
+  cedar,
 }: {
   node: SceneNode;
   muted: boolean;
   wood: boolean;
+  cedar: boolean;
 }) {
   const { gl } = useThree();
   const rendered = () => {
@@ -65,8 +68,25 @@ function Part({
   };
   const size = node.size.map((x) => x * 0.01) as [number, number, number],
     position = node.position.map((x) => x * 0.01) as [number, number, number],
-    map = useWood(wood);
+    proceduralMap = useWood(wood);
+  const cedarMap = useTexture("/textures/cedar.png");
+  const map = useMemo(() => {
+    if (!cedar) return proceduralMap;
+    const texture = cedarMap.clone();
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+    texture.anisotropy = Math.min(8, gl.capabilities.getMaxAnisotropy());
+    return texture;
+  }, [cedar, cedarMap, proceduralMap, gl]);
+  useEffect(
+    () => () => {
+      if (map) map.dispose();
+    },
+    [map],
+  );
   const geometry = useMemo(() => {
+    if (node.shape === "box")
+      return new RoundedBoxGeometry(...size, 3, Math.min(...size) * 0.035);
     if (node.shape === "extrusion") {
       const s = new THREE.Shape(
         node.points.map(([x, y]) => new THREE.Vector2(x * 0.01, y * 0.01)),
@@ -93,31 +113,38 @@ function Part({
     }
     return null;
   }, [node]);
+  useMemo(() => {
+    if (!geometry || !wood) return;
+    const positions = geometry.getAttribute("position"),
+      normals = geometry.getAttribute("normal");
+    const axes = [0, 1, 2].sort((a, b) => node.size[b] - node.size[a]);
+    const uv = [];
+    for (let i = 0; i < positions.count; i++) {
+      const coords = [positions.getX(i), positions.getY(i), positions.getZ(i)];
+      const normal = [
+        Math.abs(normals.getX(i)),
+        Math.abs(normals.getY(i)),
+        Math.abs(normals.getZ(i)),
+      ];
+      const faceAxis = normal.indexOf(Math.max(...normal));
+      const plane = axes.filter((axis) => axis !== faceAxis);
+      uv.push(coords[plane[0]] / 7.2 + 0.5, coords[plane[1]] / 3.0 + 0.5);
+    }
+    geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  }, [geometry, wood, node.size]);
+  useEffect(() => () => geometry?.dispose(), [geometry]);
   const material = (
     <meshStandardMaterial
-      color={muted ? "#dddcd8" : node.color}
+      color={muted ? "#dddcd8" : cedar ? "#ffffff" : node.color}
       roughness={node.roughness}
       metalness={node.metalness}
       map={muted ? null : map}
+      bumpMap={muted ? null : map}
+      bumpScale={wood ? 0.008 : 0}
       transparent={muted}
       opacity={muted ? 0.18 : 1}
     />
   );
-  if (node.shape === "box")
-    return (
-      <RoundedBox
-        onAfterRender={rendered}
-        args={size}
-        radius={Math.min(...size) * 0.055}
-        smoothness={3}
-        position={position}
-        rotation={node.rotation as [number, number, number]}
-        castShadow
-        receiveShadow
-      >
-        {material}
-      </RoundedBox>
-    );
   return (
     <mesh
       onAfterRender={rendered}
@@ -231,11 +258,11 @@ export default function SceneView({
           gl={{ antialias: true, preserveDrawingBuffer: true }}
         >
           <color attach="background" args={["#f5f4f0"]} />
-          <ambientLight intensity={1.45} />
-          <hemisphereLight args={["#ffffff", "#c4b7a3", 1.1]} />
+          <ambientLight intensity={0.7} />
+          <hemisphereLight args={["#ffffff", "#c4b7a3", 0.7]} />
           <directionalLight
             position={[12, 18, 7]}
-            intensity={3.2}
+            intensity={2.5}
             castShadow
             shadow-mapSize={[2048, 2048]}
             shadow-camera-left={-20}
@@ -244,24 +271,27 @@ export default function SceneView({
             shadow-camera-bottom={-20}
             shadow-bias={-0.0002}
           />
-          <directionalLight position={[-10, 8, -6]} intensity={1.3} />
+          <directionalLight position={[-10, 8, -6]} intensity={0.7} />
           <Suspense fallback={null}>
             {scene.nodes.map((n) => (
               <Part
                 key={n.id}
                 node={n}
                 muted={highlight.length > 0 && !highlight.includes(n.partId)}
-                wood={
-                  spec.materials
-                    .find(
-                      (m) =>
-                        m.id ===
-                        spec.parts.find((p) => p.id === n.partId)?.materialId,
-                    )
-                    ?.name.match(
-                      /wood|cedar|oak|pine|plywood|walnut|timber/i,
-                    ) !== null && spec.category === "Woodworking"
-                }
+                wood={/wood|cedar|oak|pine|plywood|walnut|timber/i.test(
+                  spec.materials.find(
+                    (m) =>
+                      m.id ===
+                      spec.parts.find((p) => p.id === n.partId)?.materialId,
+                  )?.name ?? "",
+                )}
+                cedar={/cedar/i.test(
+                  spec.materials.find(
+                    (m) =>
+                      m.id ===
+                      spec.parts.find((p) => p.id === n.partId)?.materialId,
+                  )?.name ?? "",
+                )}
               />
             ))}
             <ContactShadows
@@ -349,7 +379,6 @@ export default function SceneView({
           <Expand size={16} />
         </Button>
       </div>
-      <span className="scene-hint">Drag to rotate · Scroll to zoom</span>
     </div>
   );
 }

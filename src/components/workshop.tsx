@@ -1,11 +1,16 @@
 "use client";
+import { Select } from "./ui/select";
 import { WorkbenchLogo } from "./workbench-logo";
 import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   ArrowUp,
+  Clock3,
+  Gauge,
+  Wallet,
   ArrowRight,
   Plus,
+  SquarePen,
   PanelLeftClose,
   PanelLeft,
   Search,
@@ -250,7 +255,14 @@ export default function Workbench({
     let p = exampleProject();
     try {
       const saved = localStorage.getItem("workshop:example");
-      if (saved) p = JSON.parse(saved);
+      if (saved) {
+        const previous = JSON.parse(saved);
+        p = {
+          ...p,
+          progress: previous.progress ?? p.progress,
+          units: previous.units ?? p.units,
+        };
+      }
     } catch {}
     if (preview) {
       adopt(p);
@@ -259,7 +271,7 @@ export default function Workbench({
   }
   async function send(
     text = input,
-    mode: "message" | "preview" | "illustration" = "message",
+    mode: "message" | "preview" | "illustration" | "diagrams" = "message",
   ) {
     if (preview) {
       notify(
@@ -383,6 +395,18 @@ export default function Workbench({
     spec?.steps.find((s) => s.id === stepId) ??
     spec?.steps.find((s) => !project?.progress.completed[s.id]) ??
     spec?.steps[0];
+  useEffect(() => {
+    if (preview && project?.id === "example-planter")
+      setProject((previous) =>
+        previous
+          ? {
+              ...previous,
+              spec: exampleProject().spec,
+              stepImages: exampleProject().stepImages,
+            }
+          : previous,
+      );
+  }, [preview, project?.id]);
   const currentIllustration = project?.illustrations?.findLast(
     (x) => x.revisionId === project.currentRevisionId,
   );
@@ -412,12 +436,12 @@ export default function Workbench({
         </div>
         <nav className="sidebar-actions">
           <button onClick={newChat}>
-            <Plus size={18} />
+            <SquarePen size={18} />
             New project
           </button>
           <button onClick={() => setFilter(filter === null ? "" : null)}>
             <Search size={17} />
-            Search projects<span className="shortcut">⌘ K</span>
+            Search projects
           </button>
         </nav>
         {filter !== null && (
@@ -493,10 +517,9 @@ export default function Workbench({
           </div>
           <div className="header-actions">
             {preview && (
-              <a className="sign-in-link" href="/login">
-                Sign in
-                <ArrowRight size={14} />
-              </a>
+              <Button asChild size="sm" className="sign-in-button">
+                <a href="/login">Sign in</a>
+              </Button>
             )}
             {hasWorkspace && (
               <div className="mobile-switch">
@@ -735,10 +758,7 @@ export default function Workbench({
                   >
                     <Plus size={21} />
                   </Button>
-                  <span className="model-label">
-                    {home ? "Plan a project" : "Workbench"}
-                    <ChevronDown size={11} />
-                  </span>
+                  <span className="composer-spacer" aria-hidden="true" />
                   {job ? (
                     <Button
                       size="icon"
@@ -813,14 +833,16 @@ export default function Workbench({
                     <button
                       key={t.name}
                       role="tab"
+                      aria-label={t.name}
+                      title={t.name}
                       aria-selected={tab === t.name}
                       onClick={() => {
                         setTab(t.name);
                         setHistory(false);
                       }}
                     >
-                      <t.icon size={15} />
-                      {t.name}
+                      <t.icon size={15} aria-hidden="true" />
+                      {tab === t.name && t.name}
                     </button>
                   ))}
                 </div>
@@ -885,7 +907,6 @@ export default function Workbench({
                   <>
                     <div className="preview-heading">
                       <div>
-                        <span className="eyebrow">{spec.category}</span>
                         <h2>{spec.title}</h2>
                       </div>
                       <button
@@ -937,18 +958,19 @@ export default function Workbench({
                           .map((x) => formatLength(x, units))
                           .join(" × ")}
                       </span>
-                      <span>Concept preview</span>
                     </div>
                     <div className="preview-summary">
                       <p>{spec.summary}</p>
                       <div className="project-facts">
-                        <span>{spec.difficulty}</span>
+                        <span><Gauge size={14} aria-hidden="true" />{spec.difficulty}</span>
                         <span>
+                          <Clock3 size={14} aria-hidden="true" />
                           {spec.minutes < 60
                             ? `${spec.minutes} min`
                             : `${Number((spec.minutes / 60).toFixed(1))} hours`}
                         </span>
-                        <span>
+                        <span title={cost?.unknown ? "Materials subtotal; some items still need a price" : "Estimated materials cost"}>
+                          <Wallet size={14} aria-hidden="true" />
                           {cost?.unknown ? "From " : ""}
                           {money(cost?.total ?? 0)} est.
                         </span>
@@ -1038,7 +1060,7 @@ export default function Workbench({
                             {project.progress.completed[s.id] ? (
                               <Check size={15} />
                             ) : (
-                              String(i + 1).padStart(2, "0")
+                              i + 1
                             )}
                           </span>
                           <span>
@@ -1049,8 +1071,13 @@ export default function Workbench({
                         </button>
                         {selectedStep?.id === s.id && (
                           <div className="step-content">
-                            <StepDiagram step={s} />
-                            <p>{s.instructions}</p>
+                            <StepDiagram
+                              step={s}
+                              project={project}
+                              onRetry={() => send("", "diagrams")}
+                              busy={Boolean(job)}
+                            />
+                            <StepInstructions step={s} />
                             <div className="expected">
                               <CheckCheck size={16} />
                               <span>{s.expectedResult}</span>
@@ -1360,13 +1387,15 @@ export default function Workbench({
             {project && (
               <label className="setting-row">
                 Measurements
-                <select
+                <Select
+                  label="Measurements"
                   value={units}
-                  onChange={(e) => act("units", undefined, e.target.value)}
-                >
-                  <option value="imperial">Inches</option>
-                  <option value="metric">Millimeters</option>
-                </select>
+                  onValueChange={(value) => act("units", undefined, value)}
+                  options={[
+                    { value: "imperial", label: "Inches" },
+                    { value: "metric", label: "Millimeters" },
+                  ]}
+                />
               </label>
             )}
             <a href="/demo" className="setting-row">
@@ -1394,73 +1423,61 @@ export default function Workbench({
           </section>
         </div>
       )}
-      {spec && <PrintGuide spec={spec} units={units} />}
+      {spec && project && (
+        <PrintGuide spec={spec} units={units} project={project} />
+      )}
     </div>
   );
 }
 
-function StepDiagram({ step }: { step: Step }) {
-  const labels = step.diagram.labels;
+function StepInstructions({ step }: { step: Step }) {
+  const actions = step.instructions.split(/\n\s*\n/).filter(Boolean);
   return (
-    <div className="step-diagram">
-      <svg
-        viewBox={`0 0 ${Math.max(labels.length, 1) * 130} 90`}
-        role="img"
-        aria-label={labels.join(", then ")}
-      >
-        {labels.map((label, i) => (
-          <g key={i}>
-            <rect
-              x={i * 130 + 10}
-              y="10"
-              width="100"
-              height="48"
-              rx="7"
-              fill="#eeece5"
-              stroke="#c9c5b9"
-            />
-            {step.diagram.kind === "measure" ? (
-              <>
-                <path
-                  d={`M${i * 130 + 26} 35h68`}
-                  stroke="#918872"
-                  strokeWidth="2"
-                />
-                {[0, 1, 2, 3, 4, 5].map((n) => (
-                  <path
-                    key={n}
-                    d={`M${i * 130 + 30 + n * 12} 29v12`}
-                    stroke="#918872"
-                  />
-                ))}
-              </>
-            ) : (
-              <path
-                d={`m${i * 130 + 43} 26 18-8 18 8v17l-18 8-18-8V26Zm0 0 18 8 18-8m-18 8v17`}
-                fill="none"
-                stroke="#a39881"
-                strokeWidth="1.5"
-              />
-            )}
-            <text
-              x={i * 130 + 60}
-              y="78"
-              textAnchor="middle"
-              fill="#69665e"
-              fontSize="11"
-            >
-              {label}
-            </text>
-            {i < labels.length - 1 && (
-              <path
-                d={`M${i * 130 + 115} 34h20m-5-4 5 4-5 4`}
-                stroke="#aaa393"
-                fill="none"
-              />
-            )}
-          </g>
-        ))}
-      </svg>
+    <div className="step-instructions">
+      {actions.map((action, i) => (
+        <p key={i}>{action}</p>
+      ))}
+    </div>
+  );
+}
+function StepDiagram({
+  step,
+  project,
+  onRetry,
+  busy = false,
+}: {
+  step: Step;
+  project: Project;
+  onRetry?: () => void;
+  busy?: boolean;
+}) {
+  const illustration = project.stepImages?.findLast(
+    (image) =>
+      image.stepId === step.id &&
+      image.revisionId === project.currentRevisionId,
+  );
+  if (illustration?.url && illustration.state === "ready")
+    return (
+      <figure className="step-illustration">
+        <img src={illustration.url} alt={illustration.alt} loading="lazy" />
+      </figure>
+    );
+  if (!onRetry) return null;
+  return (
+    <div className="step-image-unavailable">
+      {busy ? (
+        <>
+          <Loader2 size={16} className="spin" />
+          <span>Illustrating the steps…</span>
+        </>
+      ) : (
+        <button onClick={onRetry}>
+          <ImageIcon size={16} />
+          {illustration?.state === "failed"
+            ? "Retry step illustrations"
+            : "Illustrate the steps"}
+        </button>
+      )}
     </div>
   );
 }
@@ -1493,22 +1510,25 @@ function ShoppingItem({
           <span className="quantity">
             {item.quantity} {item.unit}
             {source
-              ? ` · Buy ${Math.ceil(item.quantity / source.packQuantity)} pack(s)`
+              ? source.price === null
+                ? " · Confirm with supplier"
+                : ` · Buy ${Math.ceil(item.quantity / source.packQuantity)} pack(s)`
               : ""}
           </span>
         </div>
         <span className="item-price">{cost === null ? "—" : money(cost)}</span>
       </div>
       <div className="shopping-item-actions">
-        <select
-          aria-label={`Status for ${item.name}`}
+        <Select
+          label={`Status for ${item.name}`}
           value={state || "needed"}
-          onChange={(e) => onChange(e.target.value)}
-        >
-          <option value="needed">Need to get</option>
-          <option value="owned">Already have</option>
-          <option value="purchased">Purchased</option>
-        </select>
+          onValueChange={onChange}
+          options={[
+            { value: "needed", label: "Need to get" },
+            { value: "owned", label: "Already have" },
+            { value: "purchased", label: "Purchased" },
+          ]}
+        />
         {source ? (
           <a href={source.url} target="_blank" rel="noopener noreferrer">
             {new URL(source.url).hostname.replace("www.", "")}
@@ -1533,7 +1553,15 @@ function ShoppingItem({
     </article>
   );
 }
-function PrintGuide({ spec, units }: { spec: Spec; units: Project["units"] }) {
+function PrintGuide({
+  spec,
+  units,
+  project,
+}: {
+  spec: Spec;
+  units: Project["units"];
+  project: Project;
+}) {
   return (
     <div className="print-guide">
       <h1>{spec.title}</h1>
@@ -1579,8 +1607,8 @@ function PrintGuide({ spec, units }: { spec: Spec; units: Project["units"] }) {
           <h2>
             {i + 1}. {s.title}
           </h2>
-          <StepDiagram step={s} />
-          <p>{s.instructions}</p>
+          <StepDiagram step={s} project={project} />
+          <StepInstructions step={s} />
           <p>
             <strong>Check:</strong> {s.check}
           </p>

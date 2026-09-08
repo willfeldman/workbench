@@ -1,9 +1,15 @@
+import {
+  generateStepImage,
+  imageModel,
+  IllustrationReviewError,
+} from "./image-generation";
 import { getProject, mutateProject, recordEvent } from "./repository";
 import { adminClient } from "./supabase";
 import { localMode, fixtureAI, requireEnv } from "./config";
 import { interpret, generateGuide, generateScene, sourceItems } from "./ai";
 import {
   validateSpec,
+  stepVisualSignature,
   validateScene,
   changedCompletedSteps,
   publishRevision,
@@ -23,6 +29,7 @@ async function state(owner: string, id: string, jobId: string, label: string) {
     )
       throw new Error("Request superseded");
     j.state = "running";
+    j.heartbeatAt = new Date().toISOString();
     j.error = null;
     j.stage = label;
     if (j.activities.at(-1)?.label !== label)
@@ -161,6 +168,142 @@ export async function sceneStep(owner: string, id: string, jobId: string) {
     d.jobs.find((x) => x.id === jobId)!.draft = validateSpec(draft);
   });
 }
+export async function diagramPlanStep(
+  owner: string,
+  id: string,
+  jobId: string,
+) {
+  "use step";
+  const p = await state(owner, id, jobId, "Preparing step illustrations");
+  const j = p.jobs.find((j) => j.id === jobId)!;
+  const spec = j.draft ?? p.spec;
+  if (!spec) return [];
+  return spec.steps
+    .filter((step) => {
+      const ready = p.stepImages?.some(
+        (image) =>
+          image.revisionId === p.currentRevisionId &&
+          image.stepId === step.id &&
+          image.state === "ready",
+      );
+      return (
+        !ready ||
+        !p.spec ||
+        stepVisualSignature(p.spec, step.id) !==
+          stepVisualSignature(spec, step.id)
+      );
+    })
+    .map((step) => step.id);
+}
+export async function diagramStep(
+  owner: string,
+  id: string,
+  jobId: string,
+  stepId: string,
+  correction?: string,
+) {
+  "use step";
+  const p = await state(owner, id, jobId, "Illustrating each step");
+  const j = p.jobs.find((j) => j.id === jobId)!;
+  const spec = j.draft ?? p.spec;
+  const step = spec?.steps.find((step) => step.id === stepId);
+  if (!spec || !step) throw new Error("Missing step");
+  const revisionId =
+    j.mode === "diagrams" ? p.currentRevisionId! : jobId + "-revision";
+  if (
+    p.stepImages?.some(
+      (image) =>
+        image.revisionId === revisionId &&
+        image.stepId === stepId &&
+        image.state === "ready",
+    )
+  )
+    return;
+  const imageId = jobId + "-" + stepId;
+  await mutateProject(owner, id, (d) => {
+    d.stepImages ??= [];
+    d.stepImages = d.stepImages.filter((image) => image.id !== imageId);
+    d.stepImages.push({
+      id: imageId,
+      stepId,
+      revisionId,
+      state: "pending",
+      path: null,
+      alt: step.title,
+      model: null,
+      createdAt: new Date().toISOString(),
+    });
+  });
+  try {
+    if (fixtureAI()) throw new Error("No image provider in fixture mode");
+    const result = await generateStepImage(spec, step, correction);
+    const imagePath = `${owner}/${id}/${imageId}.webp`;
+    if (localMode()) {
+      const full = path.join(process.cwd(), ".local", imagePath);
+      await fs.mkdir(path.dirname(full), { recursive: true });
+      await fs.writeFile(full, result.buffer, { mode: 0o600 });
+    } else {
+      const { error } = await adminClient()
+        .storage.from("project-photos")
+        .upload(imagePath, result.buffer, {
+          contentType: "image/webp",
+          upsert: true,
+        });
+      if (error) throw error;
+    }
+    await mutateProject(owner, id, (d) => {
+      const current = d.jobs.find((j) => j.id === jobId)!;
+      if (
+        current.state === "cancelled" ||
+        current.baseRevisionId !== d.currentRevisionId
+      )
+        return;
+      const image = d.stepImages?.find((image) => image.id === imageId);
+      if (image)
+        Object.assign(image, {
+          state: "ready",
+          path: imagePath,
+          alt: result.alt,
+          model: result.model,
+        });
+    });
+    await recordEvent(owner, id, "step_image_generated", {
+      stepId,
+      model: result.model,
+    });
+  } catch (error) {
+    console.error(
+      "Step illustration failed",
+      error instanceof OpenAI.APIError
+        ? { status: error.status, code: error.code, param: error.param }
+        : error instanceof Error
+          ? error.message
+          : "Unknown error",
+    );
+    await mutateProject(owner, id, (d) => {
+      const image = d.stepImages?.find((image) => image.id === imageId);
+      if (image) image.state = "failed";
+    });
+    await recordEvent(owner, id, "step_image_failed", { stepId });
+    if (error instanceof IllustrationReviewError) return error.message;
+  }
+}
+export async function finishDiagramsStep(
+  owner: string,
+  id: string,
+  jobId: string,
+) {
+  "use step";
+  await mutateProject(owner, id, (d) => {
+    const j = d.jobs.find((j) => j.id === jobId)!;
+    if (j.state === "cancelled" || j.baseRevisionId !== d.currentRevisionId)
+      return;
+    j.state = "complete";
+    j.stage = "Ready";
+    j.error = null;
+    j.finishedAt = new Date().toISOString();
+  });
+}
 export async function publishStep(owner: string, id: string, jobId: string) {
   "use step";
   const current = await getProject(owner, id);
@@ -226,7 +369,7 @@ export async function illustrationStep(
     timeout: 240000,
     maxRetries: 0,
   }).images.generate({
-    model: process.env.OPENAI_IMAGE_MODEL || "gpt-image-2.5-sunburst",
+    model: await imageModel(),
     quality: "high",
     size: "1536x1024",
     output_format: "webp",
@@ -289,11 +432,24 @@ export async function runWorkflow(owner: string, id: string, jobId: string) {
       await illustrationStep(owner, id, jobId);
       return;
     }
+    if (mode === "diagrams") {
+      for (const stepId of await diagramPlanStep(owner, id, jobId)) {
+        const correction = await diagramStep(owner, id, jobId, stepId);
+        if (correction) await diagramStep(owner, id, jobId, stepId, correction);
+      }
+      await finishDiagramsStep(owner, id, jobId);
+      return;
+    }
     if (mode === "message") {
       await guideStep(owner, id, jobId);
       await sourcingStep(owner, id, jobId);
     }
     await sceneStep(owner, id, jobId);
+    if (mode === "message")
+      for (const stepId of await diagramPlanStep(owner, id, jobId)) {
+        const correction = await diagramStep(owner, id, jobId, stepId);
+        if (correction) await diagramStep(owner, id, jobId, stepId, correction);
+      }
     await publishStep(owner, id, jobId);
   } catch (e) {
     console.error(

@@ -24,6 +24,21 @@ const board = (
   vertices: [],
   indices: [],
 });
+const source = (
+  url: string,
+  title: string,
+  price: number | null,
+  packQuantity: number,
+  evidence: string,
+) => ({
+  url,
+  title,
+  price,
+  packQuantity,
+  evidence,
+  checkedAt: "2026-09-08T22:00:00.000Z",
+  availability: "unknown" as const,
+});
 export function exampleSpec(): Spec {
   const nodes = [
     board("front", [0, 355, 159], [720, 230, 18]),
@@ -91,6 +106,7 @@ export function exampleSpec(): Spec {
     assumptions: [
       "Dimensions are an example: 720 × 336 × 470 mm.",
       "Use actual measured board thickness, not nominal lumber dimensions.",
+      "Wood needs a custom milling quote; the displayed subtotal excludes wood, shipping, tax and tools. Confirm the full cost against your budget before ordering.",
       "Place on a flat surface away from railings and children; this is not a seat.",
     ],
     openQuestions: [],
@@ -107,8 +123,16 @@ export function exampleSpec(): Spec {
           "18 mm thick; four wall panels and one base with four 36 × 36 mm corner notches, cut to the part dimensions",
         quantity: 1,
         unit: "cut set",
-        estimatedUnitPrice: 38,
-        sources: [],
+        estimatedUnitPrice: null,
+        sources: [
+          source(
+            "https://www.globalwoodsource.com/cedar-western-red/",
+            "Western red cedar — custom cut quote required",
+            null,
+            1,
+            "Supplier lists Western red cedar lumber. Request a quote for all five panels, finished to 18 mm, including the four open base corner notches. Custom milling is offered at https://www.globalwoodsource.com/millwork-service/; confirm widths, milling, delivery and total cost before ordering. This is not a ready-cut kit.",
+          ),
+        ],
       },
       {
         id: "legs",
@@ -116,18 +140,34 @@ export function exampleSpec(): Spec {
         specification: "36 × 36 mm; four pieces, each 450 mm long",
         quantity: 4,
         unit: "pieces",
-        estimatedUnitPrice: 3,
-        sources: [],
+        estimatedUnitPrice: null,
+        sources: [
+          source(
+            "https://www.globalwoodsource.com/millwork-service/",
+            "Custom-milled cedar legs — quote required",
+            null,
+            4,
+            "Ask the same supplier to quote four finished 36 × 36 × 450 mm Western red cedar legs. Millwork is advertised, but this exact cut set and its price require confirmation. Combine the wood order to avoid duplicate setup charges.",
+          ),
+        ],
       },
       {
         id: "screws",
         name: "Exterior wood screws",
         specification:
-          "4 × 35 mm for box joints; 4 × 45 mm for fixing legs. Check against actual thickness.",
-        quantity: 1,
-        unit: "mixed pack",
-        estimatedUnitPrice: 9,
-        sources: [],
+          "#8 × 1-5/8 in (about 41 mm) stainless wood screws; 38 required. Check pilot size and actual thickness before drilling.",
+        quantity: 38,
+        unit: "screws",
+        estimatedUnitPrice: null,
+        sources: [
+          source(
+            "https://www.homedepot.com/p/319949277",
+            "DECKMATE #8 × 1-5/8 in stainless deck screws, 132-piece box",
+            28.58,
+            132,
+            "Retailer lists model 867100, grade 316 stainless steel Torx flat-head wood screws, 132 pieces per box, at $28.58. One box covers 38 screws. Confirm the matching Torx driver bit.",
+          ),
+        ],
       },
       {
         id: "finish",
@@ -135,9 +175,17 @@ export function exampleSpec(): Spec {
         specification:
           "Suitable for cedar; follow the manufacturer’s application and curing instructions",
         quantity: 1,
-        unit: "small tin",
-        estimatedUnitPrice: 14,
-        sources: [],
+        unit: "quart",
+        estimatedUnitPrice: null,
+        sources: [
+          source(
+            "https://www.homedepot.com/p/301060424",
+            "BEHR PREMIUM clear exterior wood finish, 1 quart",
+            20.98,
+            1,
+            "Retailer lists clear transparent waterproofing exterior wood finish 50004, 1 quart, at $20.98. Follow its wood preparation, application and curing directions; it is not a soil liner.",
+          ),
+        ],
       },
     ],
     tools: [
@@ -185,7 +233,7 @@ export function exampleSpec(): Spec {
         id: "prepare",
         title: "Prepare the pieces",
         instructions:
-          "Lay out the precut boards and four legs. Check every length and the actual thickness against the parts list. The end panels sit between the front and back, with a 684 × 300 mm base inside the walls. The base needs a 36 × 36 mm square notch at each corner to clear the legs. Have these notches precut or cut them with a suitable saw before assembly. Dry-fit all four legs through the notches before drilling. Sand rough faces and ease sharp edges.",
+          "Lay out the nine precut pieces: two long walls, two short ends, one base, and four legs. Keep the matching pieces together.\n\nCheck the pieces against the parts list. The walls and base should be 18 mm thick; the legs should be 36 × 36 mm. If your wood differs, ask to adjust the plan before drilling.\n\nCheck that the base has a 36 × 36 mm notch cut out of each corner. These open corners leave room for the legs. Ask the supplier to cut them if they are missing.\n\nPut the pieces together without screws to check the fit—this is a dry fit. The short ends go between the long walls. The base fits inside the walls, and a leg fits into each notched corner.\n\nSand rough spots with a sanding block, moving along the wood grain. Lightly round any sharp edges. The pieces should feel smooth and fit without being forced.",
         expectedResult: "Nine smooth pieces that fit together without forcing.",
         minutes: 35,
         partIds: nodes.map((n) => n.id),
@@ -206,7 +254,7 @@ export function exampleSpec(): Spec {
         id: "box",
         title: "Assemble the box",
         instructions:
-          "Clamp the front, back, and two ends into a square box. Position the end panels between the long panels. Check both diagonals are equal. Predrill and countersink through the long panels into the ends, keeping holes centered in the receiving material. Use three appropriately spaced 35 mm screws per corner; confirm they will not protrude.",
+          "Stand the two long walls on their lower edges. Put a short end between them at each side to make an open-bottomed rectangle.\n\nClamp the corners so the top edges line up. Check each corner with a carpenter’s square, or measure from corner to corner in both directions; equal diagonals mean the box is square.\n\nMark three screw positions down each end of the long walls. Center each mark on the 18 mm thickness of the short end behind it, and keep clear of the top and bottom edges.\n\nDrill a small pilot hole at each mark so the screw will not split the wood. Use a countersink bit to make a shallow recess for the screw head.\n\nDrive a 41 mm stainless exterior screw into each pilot hole. Stop when its head is flush with the wood. Remove the clamps and check that the corners stay tight and square.",
         expectedResult: "A square, open-bottomed box with flush corners.",
         minutes: 45,
         partIds: ["front", "back", "left", "right"],
@@ -225,7 +273,7 @@ export function exampleSpec(): Spec {
         id: "bottom",
         title: "Fit the base",
         instructions:
-          "Place the notched base between the walls with its underside flush to the bottom of the box. Support it on scrap blocks while clamping. Predrill centered into the base edges, then secure with 35 mm screws: three along each long edge and two along each short edge, all clear of the notches. Confirm the screw length suits the actual stock. This base holds removable pots, not loose soil.",
+          "Keep the wall box upright on the bench. Set the notched base inside it, with its underside level with the lower edges of the walls.\n\nUse scrap blocks to hold the base at this height, then clamp it. Leave the four corner notches open for the legs.\n\nMark three screw positions along each long wall and two along each short wall. Each mark must line up with the middle of the base’s thickness, away from the corner notches.\n\nDrill pilot holes and shallow countersinks through the walls into the base edges. Drive in 41 mm stainless exterior screws, stopping when their heads are flush.\n\nRemove the blocks and check that the base does not shift under gentle hand pressure. Check inside for sharp screw tips. This example is for lightweight removable pots, not a box filled with soil.",
         expectedResult:
           "The base sits flush and does not shift under gentle hand pressure.",
         minutes: 25,
@@ -247,7 +295,7 @@ export function exampleSpec(): Spec {
         id: "legs-step",
         title: "Attach the legs",
         instructions:
-          "Place the four legs inside the corners so the feet are 222 mm below the underside of the base and the tops sit 20 mm below the rim. Clamp each leg and check it is square. Predrill two offset holes through each adjacent wall into the leg, then fasten with 45 mm screws. Keep the screws on the two faces at different heights to prevent collisions. Set the planter upright on a level surface and check for wobble.",
+          "Slide one leg through each corner notch from below. Each leg sits inside the corner, touching both adjacent walls.\n\nMeasure from the top rim down to each leg’s top: leave a 20 mm gap. The feet should project 222 mm below the base’s underside. Clamp each leg at that position.\n\nHold a square against each leg and the box to check that the leg is straight. Adjust the clamp before drilling if it leans.\n\nMark two screw holes through each adjoining wall into the leg. Put the holes on one wall at different heights from those on the other wall so the screws cannot collide.\n\nDrill pilot holes and countersinks, then fix each leg with 41 mm stainless exterior screws. Keep every screw centered in the leg and check that no tip comes through.\n\nStand the empty planter on a level floor. All four feet should touch without rocking. Resolve any wobble before adding pots.",
         expectedResult:
           "Four square legs and a freestanding planter that sits level.",
         minutes: 40,
@@ -269,7 +317,7 @@ export function exampleSpec(): Spec {
         id: "finish-step",
         title: "Finish and make it yours",
         instructions:
-          "Sand any remaining rough edges and remove dust. Apply a cedar-compatible exterior finish following its label, including ventilation and full curing time. Once cured, add a few lightweight removable plant pots with saucers. Distribute them evenly and check stability again. Keep standing water off the wood.",
+          "Sand away any remaining rough spots and wipe off the dust. Put a drop cloth under the empty planter.\n\nApply a thin coat of cedar-compatible exterior finish along the wood grain. Use the applicator, ventilation, and number of coats specified on the tin.\n\nLeave the planter empty until the finish has fully cured. Dry to the touch is not always fully cured; check the label for the waiting time.\n\nAdd a few lightweight plant pots with saucers. Space them evenly across the base and check that the planter remains stable.\n\nWipe up standing water and check the joints periodically. Do not fill the box with loose soil, sit on it, or stand on it.",
         expectedResult:
           "A finished planter ready for lightweight potted plants.",
         minutes: 35,
@@ -316,6 +364,23 @@ export function exampleProject(owner = "preview"): Project {
       reworkStepIds: [],
     },
   ];
+  p.stepImages = spec.steps.map((step, i) => ({
+    id: "example-image-" + step.id,
+    stepId: step.id,
+    revisionId: "example-v1",
+    state: "ready",
+    path: null,
+    url: "/guide/" + ["prepare", "box", "bottom", "legs", "finish"][i] + ".png",
+    alt: [
+      "Checking the precut walls, notched base and four legs on a workbench.",
+      "Checking the square corners of the clamped wall box.",
+      "Fitting the base inside the walls with corner notches open for the legs.",
+      "Holding the inside corner legs square before fixing them.",
+      "Brushing finish along the grain of the assembled planter.",
+    ][i],
+    model: "imagegen",
+    createdAt: p.createdAt,
+  }));
   p.messages = [
     {
       id: "example-user",

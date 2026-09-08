@@ -8,12 +8,12 @@ Workbench is an AI workspace for physical projects. Describe an idea, work throu
 
 - Minimal, responsive conversation and project workspace
 - Astra planning, photo understanding, structured guides, and 3D scene generation
-- Full guides, part dimensions, process diagrams, progress, final photos, and print layouts
+- Full guides with short action paragraphs, generated step illustrations, part dimensions, progress, final photos, and print layouts
 - Material/tool ownership, pack-aware cost estimates, and researched US retailer links
 - Versioned plans, reviewable photo suggestions, undo/restore, and preserved completed work
 - Private, invite-only accounts and image storage with Supabase
 - Durable background execution on **Vercel Workflows** — no Trigger.dev account
-- Optional Image 2.5 illustrations, independent of the interactive 3D preview
+- Optional AI illustrations using the newest supported model available to the account, independent of the interactive 3D preview
 - An explicit example workspace at `/demo`, usable without credentials
 
 ## Run locally
@@ -52,19 +52,19 @@ OpenAI model requests go directly to OpenAI and are charged to that account. Ver
 | `SUPABASE_SERVICE_ROLE_KEY`            | Server-only database/storage access                                          |
 | `OPENAI_API_KEY`                       | Server-only OpenAI key                                                       |
 | `OPENAI_MODEL`                         | Defaults to `gpt-6-astra`                                                    |
-| `OPENAI_IMAGE_MODEL`                   | Defaults to `gpt-image-2.5-sunburst`; Flare can be configured when available |
+| `OPENAI_IMAGE_MODEL`                   | `auto` selects the newest available supported image model (Sunburst, Flare, then GPT Image 2); an explicit model overrides this |
 | `NEXT_PUBLIC_APP_URL`                  | Canonical app origin for authentication                                      |
 | `WORKSHOP_DAILY_RUN_LIMIT`             | Daily per-account generation requests; default 30                            |
 | `WORKSHOP_LOCAL_MODE`                  | Explicit local development persistence; default false                        |
 | `WORKSHOP_TEST_AI`                     | Deterministic local test fixture; default false, never enabled for users     |
 
-Image model availability is account-specific. A model being listed in documentation does not establish account access. `npm run check:services` checks model metadata; a real generation is still needed to verify inference. The app preserves its guide and 3D preview when illustration generation fails.
+Image model availability is account-specific. A model being listed in documentation does not establish account access. `npm run check:services` checks model metadata; a real generation is still needed to verify inference. The app preserves its guide and 3D preview when illustration generation fails. Each generated step image gets a separate Astra consistency review before it is shown. A rejected illustration gets one corrective attempt in a separate durable step; failed images then have an explicit retry control. Images belong to a revision; only unchanged steps can reuse an earlier illustration.
 
 ## How it works
 
 A versioned `Spec` connects the brief, constraints, parts, materials, tools, ordered steps, and scene by stable IDs. The scene is validated geometry data, never executable model-generated JavaScript. Three.js renders it in the browser. Dimensions and cost calculations are application-owned; AI supplies proposed project content.
 
-Generation runs through interpretation, guide creation, sourcing, scene creation, and publication. Each hosted stage is a durable Vercel Workflow step. Drafts are private until validated and published. Sourcing retains only public HTTPS URLs found in the search response. Prices stay unknown when no evidence is available; displayed estimates are explicitly estimates.
+Generation runs through interpretation, guide creation, sourcing, scene creation, step illustration and review, and publication. Each step image has its own durable checkpoint. Each hosted stage is a durable Vercel Workflow step. Drafts are private until validated and published. Sourcing retains only public HTTPS URLs found in the search response. Prices stay unknown when no evidence is available; displayed estimates are explicitly estimates.
 
 Progress and purchase state live outside plan revisions. Revisions preserve history and flag affected completed steps for review. Photo-inferred changes require acceptance. Compare-and-swap writes prevent lost updates; publication rejects stale base revisions. Request IDs prevent duplicate submission, and account quotas are reserved atomically.
 

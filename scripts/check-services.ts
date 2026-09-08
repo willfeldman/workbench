@@ -11,7 +11,9 @@ async function main() {
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   for (const model of [
     process.env.OPENAI_MODEL || "gpt-6-astra",
-    process.env.OPENAI_IMAGE_MODEL || "gpt-image-2.5-sunburst",
+    "gpt-image-2.5-sunburst",
+    "gpt-image-2.5-flare",
+    "gpt-image-2",
   ]) {
     try {
       await client.models.retrieve(model);

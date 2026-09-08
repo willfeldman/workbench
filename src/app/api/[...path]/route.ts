@@ -34,7 +34,12 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 async function present(p: Project) {
   const d = structuredClone(p);
-  for (const photo of [...d.photos, ...(d.illustrations ?? [])]) {
+  for (const photo of [
+    ...d.photos,
+    ...(d.illustrations ?? []),
+    ...(d.stepImages ?? []),
+  ]) {
+    if (!photo.path) continue;
     if (localMode()) photo.url = `/api/projects/${p.id}/photos/${photo.id}`;
     else {
       const { data } = await adminClient()
@@ -77,7 +82,11 @@ async function route(
     if (segments.length === 2 && req.method === "GET") {
       let p = await getProject(owner, projectId);
       const job = activeJob(p);
-      if (job && Date.now() - Date.parse(job.startedAt) > 20 * 60 * 1000)
+      if (
+        job &&
+        Date.now() - Date.parse(job.heartbeatAt ?? job.startedAt) >
+          20 * 60 * 1000
+      )
         p = await mutateProject(owner, projectId, (d) => {
           const j = d.jobs.find((x) => x.id === job.id)!;
           if (j.state === "running" || j.state === "queued") {
@@ -96,7 +105,7 @@ async function route(
           photoIds: z.array(z.string().uuid()).max(4).default([]),
           requestId: z.string().uuid(),
           mode: z
-            .enum(["message", "preview", "illustration"])
+            .enum(["message", "preview", "illustration", "diagrams"])
             .default("message"),
         })
         .parse(await req.json());
@@ -368,10 +377,12 @@ async function route(
       localMode()
     ) {
       const p = await getProject(owner, projectId),
-        photo = [...p.photos, ...(p.illustrations ?? [])].find(
-          (x) => x.id === segments[3],
-        );
-      if (!photo) throw new HttpError(404, "Photo not found.");
+        photo = [
+          ...p.photos,
+          ...(p.illustrations ?? []),
+          ...(p.stepImages ?? []),
+        ].find((x) => x.id === segments[3]);
+      if (!photo?.path) throw new HttpError(404, "Photo not found.");
       return new Response(
         await fs.readFile(path.join(process.cwd(), ".local", photo.path)),
         {

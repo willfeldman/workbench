@@ -19,12 +19,11 @@ test("example workspace, guide, materials, progress and persistence", async ({
     .getByRole("button", { name: "Mark complete", exact: true })
     .click();
   await page.getByRole("tab", { name: "Materials", exact: true }).click();
-  await page
-    .getByLabel("Status for Cedar boards", { exact: true })
-    .selectOption("owned");
+  await page.getByLabel("Status for Cedar boards", { exact: true }).click();
+  await page.getByRole("option", { name: "Already have", exact: true }).click();
   await expect(
     page.getByLabel("Status for Cedar boards", { exact: true }),
-  ).toHaveValue("owned");
+  ).toHaveText("Already have");
   await page.getByRole("tab", { name: "Progress", exact: true }).click();
   await expect(page.getByText("1 of 5", { exact: true })).toBeVisible();
   await page.reload();

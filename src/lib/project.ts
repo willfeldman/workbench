@@ -151,15 +151,27 @@ export type Job = {
   state: "queued" | "running" | "complete" | "failed" | "cancelled";
   stage: string;
   startedAt: string;
+  heartbeatAt?: string;
   finishedAt: string | null;
   error: string | null;
   activities: Activity[];
   baseRevisionId: string | null;
   usage: { input: number; output: number };
-  mode: "message" | "preview" | "illustration";
+  mode: "message" | "preview" | "illustration" | "diagrams";
   workflowRunId?: string;
   intent?: Intake;
   draft?: Spec;
+};
+export type StepImage = {
+  id: string;
+  stepId: string;
+  revisionId: string;
+  state: "pending" | "ready" | "failed";
+  path: string | null;
+  alt: string;
+  model: string | null;
+  createdAt: string;
+  url?: string;
 };
 export type Project = {
   id: string;
@@ -174,6 +186,7 @@ export type Project = {
   currentRevisionId: string | null;
   proposal: Revision | null;
   photos: Photo[];
+  stepImages?: StepImage[];
   illustrations?: {
     id: string;
     path: string;
@@ -351,7 +364,47 @@ export function changedCompletedSteps(p: Project, next: Spec) {
     );
   });
 }
+export function stepVisualSignature(spec: Spec, stepId: string) {
+  const step = spec.steps.find((step) => step.id === stepId);
+  if (!step) return "";
+  return JSON.stringify({
+    step,
+    dimensions: spec.dimensionsMm,
+    scene: spec.scene?.nodes,
+    parts: spec.parts,
+    materials: spec.materials.map(({ id, name, specification }) => ({
+      id,
+      name,
+      specification,
+    })),
+  });
+}
 export function publishRevision(p: Project, r: Revision) {
+  const previous = p.spec;
+  if (previous)
+    for (const image of [...(p.stepImages ?? [])]) {
+      if (image.revisionId !== p.currentRevisionId || image.state !== "ready")
+        continue;
+      if (
+        stepVisualSignature(previous, image.stepId) !==
+        stepVisualSignature(r.spec, image.stepId)
+      )
+        continue;
+      if (
+        p.stepImages?.some(
+          (next) =>
+            next.revisionId === r.id &&
+            next.stepId === image.stepId &&
+            next.state === "ready",
+        )
+      )
+        continue;
+      p.stepImages?.push({
+        ...image,
+        id: crypto.randomUUID(),
+        revisionId: r.id,
+      });
+    }
   p.spec = r.spec;
   p.title = r.spec.title;
   p.currentRevisionId = r.id;
