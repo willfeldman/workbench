@@ -431,7 +431,7 @@ textarea {
   border-radius: 17px;
   background: #fafaf8;
   padding: 13px 11px 9px;
-  box-shadow: 0 2px 4px #333308;
+  box-shadow: none;
 }
 .composer textarea {
   display: block;
@@ -508,7 +508,7 @@ textarea {
   padding: 20px 16px 12px;
   border-radius: 22px;
   background: #fafaf8;
-  box-shadow: 0 3px 15px #232d1305;
+  box-shadow: none;
 }
 .conversation-home .composer textarea {
   font-size: 14px;
