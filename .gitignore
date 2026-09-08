@@ -10,3 +10,6 @@ playwright-report/
 *.tsbuildinfo
 /.swc
 .vercel
+
+supabase/.temp/
+supabase/.branches/

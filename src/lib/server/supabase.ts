@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
-import { requireEnv, localMode } from "./config";
+import { requireEnv, localMode, inviteOnly } from "./config";
 export async function authClient() {
   const jar = await cookies();
   return createServerClient(
@@ -36,13 +36,22 @@ export async function userId() {
   const { data, error } = await c.auth.getUser();
   if (error || !data.user)
     throw new HttpError(401, "Please sign in to continue.");
-  const { data: membership } = await adminClient()
-    .from("beta_members")
-    .select("user_id")
-    .eq("user_id", data.user.id)
-    .maybeSingle();
-  if (!membership)
-    throw new HttpError(403, "Workbench is currently invite-only.");
+  if (!data.user.email_confirmed_at || data.user.is_anonymous)
+    throw new HttpError(403, "Please confirm your email before continuing.");
+  if (inviteOnly()) {
+    const { data: membership, error: membershipError } = await adminClient()
+      .from("beta_members")
+      .select("user_id")
+      .eq("user_id", data.user.id)
+      .maybeSingle();
+    if (membershipError)
+      throw new HttpError(
+        503,
+        "Sign-in is temporarily unavailable. Please try again.",
+      );
+    if (!membership)
+      throw new HttpError(403, "This account has not been invited yet.");
+  }
   return data.user.id;
 }
 export class HttpError extends Error {

@@ -489,7 +489,7 @@ export default function Workbench({
                 : local
                   ? "Local workspace"
                   : "My workspace"}
-              <small>{preview ? "Explore Workbench" : "Private beta"}</small>
+              <small>{preview ? "Explore Workbench" : "Personal workspace"}</small>
             </span>
             <Settings2 size={16} />
           </button>

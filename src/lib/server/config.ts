@@ -14,3 +14,5 @@ export function requireEnv(name: string) {
   if (!v) throw new Error(`Missing service configuration: ${name}`);
   return v;
 }
+
+export const inviteOnly = () => process.env.WORKSHOP_INVITE_ONLY === "true";
