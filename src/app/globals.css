@@ -421,11 +421,29 @@ textarea {
   padding: 10px 21px 13px;
 }
 .composer {
+  position: relative;
   border: 1px solid #e4e4dd;
   border-radius: 17px;
   background: #fafaf8;
   padding: 13px 11px 9px;
   box-shadow: none;
+}
+.composer.is-dragging {
+  border-color: #879276;
+  background: #f1f4eb;
+}
+.composer-drop-hint {
+  position: absolute;
+  inset: 1px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  border-radius: inherit;
+  background: #f1f4ebf5;
+  color: #4f5b43;
+  font-size: 13px;
+  font-weight: 500;
+  pointer-events: none;
 }
 .composer textarea {
   display: block;

@@ -103,6 +103,7 @@ export default function Workbench({
     [sidebar, setSidebar] = useState(true),
     [input, setInput] = useState(""),
     [sending, setSending] = useState(false),
+    [draggingPhotos, setDraggingPhotos] = useState(false),
     [pendingPhotos, setPendingPhotos] = useState<string[]>([]),
     [toast, setToast] = useState(""),
     [settings, setSettings] = useState(false),
@@ -116,11 +117,27 @@ export default function Workbench({
     fileInput = useRef<HTMLInputElement>(null),
     bottom = useRef<HTMLDivElement>(null),
     uploadStep = useRef<string | null>(null),
+    uploadBusy = useRef(false),
+    dragDepth = useRef(0),
     selectedId = useRef<string | null>(null);
   useEffect(() => {
     if (window.matchMedia("(max-width:900px)").matches) setSidebar(false);
   }, []);
   const notify = useCallback((text: string) => setToast(text), []);
+  useEffect(() => {
+    const reset = () => {
+      dragDepth.current = 0;
+      setDraggingPhotos(false);
+    };
+    window.addEventListener("drop", reset);
+    window.addEventListener("dragend", reset);
+    window.addEventListener("blur", reset);
+    return () => {
+      window.removeEventListener("drop", reset);
+      window.removeEventListener("dragend", reset);
+      window.removeEventListener("blur", reset);
+    };
+  }, []);
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(""), 6500);
@@ -241,6 +258,8 @@ export default function Workbench({
     return p as Project;
   }
   function newChat() {
+    dragDepth.current = 0;
+    setDraggingPhotos(false);
     selectedId.current = null;
     setProject(null);
     setInput("");
@@ -343,34 +362,57 @@ export default function Workbench({
       notify((e as Error).message);
     }
   }
-  async function upload(files: FileList | null) {
+  async function upload(files: FileList | File[] | null) {
     if (!files?.length) return;
     if (preview) {
       notify("Photo check-ins are available in your own projects.");
       return;
     }
+    if (sending || uploadBusy.current) {
+      notify("Please wait for the current upload or message to finish.");
+      return;
+    }
+    const selected = Array.from(files);
+    if (selected.length > 4 - pendingPhotos.length) {
+      notify("You can attach up to 4 images per message.");
+      return;
+    }
+    if (
+      selected.some(
+        (file) => !["image/jpeg", "image/png", "image/webp"].includes(file.type),
+      )
+    ) {
+      notify("Choose JPG, PNG, or WebP images.");
+      return;
+    }
+    if (selected.some((file) => !file.size || file.size > 10 * 1024 * 1024)) {
+      notify("Choose images up to 10 MB each. Empty files cannot be uploaded.");
+      return;
+    }
+    uploadBusy.current = true;
+    const photoStep = uploadStep.current;
     setSending(true);
     try {
       const p = await ensureProject();
-      const uploaded: string[] = [];
-      for (const f of Array.from(files).slice(0, 4 - pendingPhotos.length)) {
+      for (const f of selected) {
         const form = new FormData();
         form.append("file", f);
-        if (uploadStep.current) form.append("stepId", uploadStep.current);
+        if (photoStep) form.append("stepId", photoStep);
         const result = await api(`/api/projects/${p.id}/photos`, {
           method: "POST",
           body: form,
         });
         adopt(result.project);
-        uploaded.push(result.photoId);
+        // Keep successful attachments if a later file in the batch fails.
+        setPendingPhotos((old) => [...old, result.photoId]);
       }
-      setPendingPhotos((old) => [...old, ...uploaded]);
       setMobilePane("chat");
       textarea.current?.focus();
     } catch (e) {
       notify((e as Error).message);
     } finally {
       uploadStep.current = null;
+      uploadBusy.current = false;
       setSending(false);
       if (fileInput.current) fileInput.current.value = "";
     }
@@ -550,6 +592,30 @@ export default function Workbench({
           <section
             className={`conversation ${home ? "conversation-home" : ""}`}
             aria-label="Project conversation"
+            onDragEnter={(event) => {
+              if (!event.dataTransfer.types.includes("Files")) return;
+              event.preventDefault();
+              dragDepth.current++;
+              setDraggingPhotos(true);
+            }}
+            onDragOver={(event) => {
+              if (!event.dataTransfer.types.includes("Files")) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect =
+                sending || pendingPhotos.length >= 4 ? "none" : "copy";
+            }}
+            onDragLeave={() => {
+              dragDepth.current = Math.max(0, dragDepth.current - 1);
+              if (!dragDepth.current) setDraggingPhotos(false);
+            }}
+            onDrop={(event) => {
+              if (!event.dataTransfer.types.includes("Files")) return;
+              event.preventDefault();
+              dragDepth.current = 0;
+              setDraggingPhotos(false);
+              uploadStep.current = null;
+              void upload(Array.from(event.dataTransfer.files));
+            }}
           >
             {home ? (
               <div className="home-intro">
@@ -699,7 +765,16 @@ export default function Workbench({
               </div>
             )}
             <div className="composer-area">
-              <div className="composer">
+              <div className={`composer${draggingPhotos ? " is-dragging" : ""}`}>
+                {draggingPhotos && (
+                  <div className="composer-drop-hint" role="status">
+                    {sending
+                      ? "Please wait…"
+                      : pendingPhotos.length >= 4
+                        ? "4 images attached"
+                        : "Drop images here"}
+                  </div>
+                )}
                 {pendingPhotos.length > 0 && (
                   <div className="attachments">
                     {pendingPhotos.map((id) => {
