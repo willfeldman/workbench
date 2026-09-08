@@ -1,0 +1,10 @@
+project_id = "workbench"
+
+[auth]
+site_url = "https://workbench-astra.vercel.app"
+additional_redirect_urls = ["https://workbench-astra.vercel.app/auth/callback", "https://workbench-astra.vercel.app/auth/confirm", "https://workbench-flame-omega.vercel.app/auth/callback", "https://workbench-will-1501s-projects.vercel.app/auth/callback"]
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+enable_confirmations = true
