@@ -54,7 +54,8 @@ OpenAI model requests go directly to OpenAI and are charged to that account. Ver
 | `OPENAI_MODEL`                         | Defaults to `gpt-6-astra`                                                    |
 | `OPENAI_IMAGE_MODEL`                   | `auto` selects the newest available supported image model (Sunburst, Flare, then GPT Image 2); an explicit model overrides this |
 | `NEXT_PUBLIC_APP_URL`                  | Canonical app origin for authentication                                      |
-| `WORKSHOP_DAILY_RUN_LIMIT`             | Daily per-account generation requests; default 30                            |
+| `WORKSHOP_DAILY_RUN_LIMIT`             | Daily per-account AI requests; default 4; saved guides remain accessible      |
+| `WORKSHOP_UNLIMITED_EMAILS`            | Server-only comma-separated verified emails exempt from the daily cap; usage is still recorded |
 | `WORKSHOP_LOCAL_MODE`                  | Explicit local development persistence; default false                        |
 | `WORKSHOP_TEST_AI`                     | Deterministic local test fixture; default false, never enabled for users     |
 | `WORKSHOP_GOOGLE_LOGIN`                | Server-only sign-in readiness flag; enable after configuring Google in Supabase |
@@ -66,9 +67,9 @@ Image model availability is account-specific. A model being listed in documentat
 
 A versioned `Spec` connects the brief, constraints, parts, materials, tools, ordered steps, and scene by stable IDs. The scene is validated geometry data, never executable model-generated JavaScript. Three.js renders it in the browser. Dimensions and cost calculations are application-owned; AI supplies proposed project content.
 
-Generation runs through interpretation, guide creation, sourcing, scene creation, step illustration and review, and publication. Each step image has its own durable checkpoint. Each hosted stage is a durable Vercel Workflow step. Drafts are private until validated and published. Sourcing retains only public HTTPS URLs found in the search response. Prices stay unknown when no evidence is available; displayed estimates are explicitly estimates.
+Generation runs through interpretation, guide creation, sourcing, scene creation, and publication. The validated guide opens immediately; step illustrations continue in two background lanes without blocking chat or build progress. Each step image has its own durable checkpoint and revision guard. Each hosted stage is a durable Vercel Workflow step. Drafts are private until validated and published. Sourcing retains only public HTTPS URLs found in the search response. Prices stay unknown when no evidence is available; displayed estimates are explicitly estimates.
 
-Progress and purchase state live outside plan revisions. Revisions preserve history and flag affected completed steps for review. Photo-inferred changes require acceptance. Compare-and-swap writes prevent lost updates; publication rejects stale base revisions. Request IDs prevent duplicate submission, and account quotas are reserved atomically.
+Progress and purchase state live outside plan revisions. Revisions preserve history and flag affected completed steps and their dependents for review; listing or price updates alone do not request rework. Photo-inferred changes require acceptance. Compare-and-swap writes prevent lost updates; publication rejects stale base revisions. Request IDs prevent duplicate submission within a project, and account quotas are reserved atomically. Automatic step illustrations are included in their originating request; manual retries use another request.
 
 Supabase tables are not writable by the browser. Server routes verify the current user and confirmed email before any service-role operation, and also require beta membership when `WORKSHOP_INVITE_ONLY=true`. Storage objects use owner/project prefixes and signed URLs. Uploads check image signatures and size. Credentials, local data, generated photos, and environment files are excluded from Git.
 

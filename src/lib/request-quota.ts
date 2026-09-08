@@ -16,3 +16,12 @@ export function dailyRunLimit(value = process.env.WORKSHOP_DAILY_RUN_LIMIT) {
   const limit = Number(value ?? 4);
   return Number.isSafeInteger(limit) && limit > 0 ? limit : 4;
 }
+
+export function hasUnlimitedUsage(
+  user: { email?: string; email_confirmed_at?: string; is_anonymous?: boolean } | null,
+  allowlist = process.env.WORKSHOP_UNLIMITED_EMAILS ?? "",
+) {
+  if (!user?.email || !user.email_confirmed_at || user.is_anonymous) return false;
+  const allowed = allowlist.split(",").map(email => email.trim().toLowerCase()).filter(Boolean);
+  return allowed.includes(user.email.trim().toLowerCase());
+}

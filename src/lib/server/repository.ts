@@ -3,7 +3,7 @@ import path from "node:path";
 import { adminClient, HttpError } from "./supabase";
 import { localMode } from "./config";
 import type { Project } from "../project";
-import { dailyRunLimit, quotaRequestId } from "../request-quota";
+import { dailyRunLimit, quotaRequestId, hasUnlimitedUsage } from "../request-quota";
 const root = path.join(process.cwd(), ".local");
 let gate: Promise<unknown> = Promise.resolve();
 async function locked<T>(fn: () => Promise<T>): Promise<T> {
@@ -135,10 +135,19 @@ export async function reserveRun(owner: string, requestId: string, projectId: st
       entries.push({ id: reservationId, owner, at: new Date().toISOString() });
       await fs.writeFile(location, JSON.stringify(entries), { mode: 0o600 });
     });
-  const { data, error } = await adminClient().rpc("reserve_run", {
+  const admin = adminClient();
+  let unlimited = false;
+  if (process.env.WORKSHOP_UNLIMITED_EMAILS?.trim()) {
+    const { data, error } = await admin.auth.admin.getUserById(owner);
+    if (error) throw new HttpError(503, "Could not verify account limits. Please try again.");
+    unlimited = hasUnlimitedUsage(data.user);
+  }
+  const { data, error } = await admin.rpc("reserve_run", {
     p_owner: owner,
     p_request: reservationId,
-    p_limit: limit,
+    // The service-only RPC still records and deduplicates unlimited usage.
+    // A NULL ceiling skips its count comparison, without skipping accounting.
+    p_limit: unlimited ? null : limit,
   });
   if (error) throw error;
   if (!data)
