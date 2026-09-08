@@ -1815,4 +1815,5 @@ textarea {
   background: #f3f4ef;
 }
 
-.wordmark .workbench-logo { width: 30px; height: 34px; margin: 0; display:block; }
+.sidebar-top .wordmark { width: 28px; height: 32px; align-items: center; justify-content: center; }
+.wordmark .workbench-logo { width: 23px; height: 19px; margin: 0; display: block; }

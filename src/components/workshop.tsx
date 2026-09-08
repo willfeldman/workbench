@@ -422,7 +422,7 @@ export default function Workbench({
             className="wordmark"
             aria-label="Workbench — new project"
           >
-            <WorkbenchLogo />
+            <WorkbenchLogo compact />
           </a>
           <Button
             variant="ghost"
