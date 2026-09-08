@@ -399,7 +399,6 @@ export default function Workbench({
             className="wordmark"
           >
             Workbench
-            
           </a>
           <Button
             variant="ghost"
