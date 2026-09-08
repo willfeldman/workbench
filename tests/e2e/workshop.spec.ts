@@ -59,3 +59,57 @@ test("a question keeps its draft and example mode does not pretend to run AI", a
     "Make it wider",
   );
 });
+
+test("divider resizing persists and reduced motion keeps the guide usable", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name === "mobile",
+    "The mobile workspace uses one pane at a time.",
+  );
+  await page.goto("/demo");
+  await page
+    .getByRole("button", { name: "Explore an example", exact: true })
+    .click();
+  const pane = page.getByRole("region", { name: "Project conversation" });
+  const divider = page.getByRole("separator", { name: "Resize conversation" });
+  const initial = (await pane.boundingBox())!.width;
+  const bounds = (await divider.boundingBox())!;
+  await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + 100);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + 104, bounds.y + 100, { steps: 8 });
+  await page.mouse.up();
+  await expect
+    .poll(async () => (await pane.boundingBox())!.width)
+    .toBeGreaterThan(initial + 80);
+  const dragged = (await pane.boundingBox())!.width;
+  await divider.press("ArrowLeft");
+  await expect
+    .poll(async () => (await pane.boundingBox())!.width)
+    .toBeLessThan(dragged - 10);
+  const saved = (await pane.boundingBox())!.width;
+  await page.reload();
+  await page
+    .getByRole("button", { name: "Explore an example", exact: true })
+    .click();
+  await expect
+    .poll(async () => Math.abs((await pane.boundingBox())!.width - saved))
+    .toBeLessThan(2);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.getByRole("tab", { name: "Guide", exact: true }).click();
+  const step = page.getByRole("button", { name: /1 Prepare the pieces/ });
+  await step.click();
+  await expect(step).toHaveAttribute("aria-expanded", "false");
+  await expect(
+    page.getByRole("button", { name: "Mark complete", exact: true }),
+  ).toHaveCount(0);
+  await step.click();
+  await expect(
+    page.getByRole("button", { name: "Mark complete", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("tabpanel")).toHaveCSS("animation-name", "none");
+  await divider.press("Enter");
+  await expect
+    .poll(async () => Math.abs((await pane.boundingBox())!.width - initial))
+    .toBeLessThan(2);
+});

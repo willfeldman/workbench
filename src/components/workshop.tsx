@@ -1,4 +1,5 @@
 "use client";
+import { PaneDivider } from "./pane-divider";
 import { Select } from "./ui/select";
 import { WorkbenchLogo } from "./workbench-logo";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -391,9 +392,11 @@ export default function Workbench({
           !project?.progress.rework.includes(s.id),
       ).length ?? 0;
   const selectedStep =
-    spec?.steps.find((s) => s.id === stepId) ??
-    spec?.steps.find((s) => !project?.progress.completed[s.id]) ??
-    spec?.steps[0];
+    stepId === "none"
+      ? undefined
+      : (spec?.steps.find((s) => s.id === stepId) ??
+        spec?.steps.find((s) => !project?.progress.completed[s.id]) ??
+        spec?.steps[0]);
   useEffect(() => {
     if (preview && project?.id === "example-planter")
       setProject((previous) =>
@@ -411,7 +414,7 @@ export default function Workbench({
   );
   return (
     <div className={`app-shell ${sidebar ? "" : "sidebar-hidden"}`}>
-      <aside className="sidebar">
+      <aside className="sidebar" inert={!sidebar}>
         <div className="sidebar-top">
           <a
             href="#"
@@ -550,9 +553,6 @@ export default function Workbench({
           >
             {home ? (
               <div className="home-intro">
-                <div className="home-symbol">
-                  <WorkbenchLogo />
-                </div>
                 <h1>What would you like to make?</h1>
               </div>
             ) : (
@@ -819,6 +819,7 @@ export default function Workbench({
                 </div>
               )}
             </div>
+            {hasWorkspace && <PaneDivider />}
           </section>
           {hasWorkspace && spec && project && (
             <section className="workspace" aria-label="Project workspace">
@@ -901,7 +902,12 @@ export default function Workbench({
                   ))}
                 </div>
               )}
-              <div className="workspace-body" role="tabpanel" aria-label={tab}>
+              <div
+                key={`${project.id}-${tab}`}
+                className="workspace-body"
+                role="tabpanel"
+                aria-label={tab}
+              >
                 {tab === "Preview" && (
                   <>
                     <div className="preview-heading">
@@ -961,14 +967,23 @@ export default function Workbench({
                     <div className="preview-summary">
                       <p>{spec.summary}</p>
                       <div className="project-facts">
-                        <span><Gauge size={14} aria-hidden="true" />{spec.difficulty}</span>
+                        <span>
+                          <Gauge size={14} aria-hidden="true" />
+                          {spec.difficulty}
+                        </span>
                         <span>
                           <Clock3 size={14} aria-hidden="true" />
                           {spec.minutes < 60
                             ? `${spec.minutes} min`
                             : `${Number((spec.minutes / 60).toFixed(1))} hours`}
                         </span>
-                        <span title={cost?.unknown ? "Materials subtotal; some items still need a price" : "Estimated materials cost"}>
+                        <span
+                          title={
+                            cost?.unknown
+                              ? "Materials subtotal; some items still need a price"
+                              : "Estimated materials cost"
+                          }
+                        >
                           <Wallet size={14} aria-hidden="true" />
                           {cost?.unknown ? "From " : ""}
                           {money(cost?.total ?? 0)} est.
@@ -1047,6 +1062,8 @@ export default function Workbench({
                       >
                         <button
                           className="step-heading"
+                          aria-expanded={selectedStep?.id === s.id}
+                          aria-controls={`step-content-${s.id}`}
                           onClick={() =>
                             setStepId(selectedStep?.id === s.id ? "none" : s.id)
                           }
@@ -1066,68 +1083,76 @@ export default function Workbench({
                           </span>
                           <ChevronDown size={15} />
                         </button>
-                        {selectedStep?.id === s.id && (
-                          <div className="step-content">
-                            <StepDiagram
-                              step={s}
-                              project={project}
-                              onRetry={() => send("", "diagrams")}
-                              busy={Boolean(job)}
-                            />
-                            <StepInstructions step={s} />
-                            <div className="expected">
-                              <CheckCheck size={16} />
-                              <span>{s.expectedResult}</span>
-                            </div>
-                            {s.precautions.length > 0 && (
-                              <details className="precautions">
-                                <summary>Things to keep in mind</summary>
-                                {s.precautions.map((p, i) => (
-                                  <p key={i}>{p}</p>
-                                ))}
-                              </details>
-                            )}
-                            <div className="inline-actions">
-                              <Button
-                                size="sm"
-                                variant={
-                                  project.progress.completed[s.id]
-                                    ? "outline"
-                                    : "default"
-                                }
-                                disabled={
-                                  !project.progress.completed[s.id] &&
-                                  !canComplete(project, s)
-                                }
-                                onClick={() =>
-                                  act(
-                                    "step",
-                                    s.id,
-                                    !project.progress.completed[s.id],
-                                  )
-                                }
-                              >
-                                {project.progress.completed[s.id] ? (
-                                  <>
-                                    <Check size={14} />
-                                    Done
-                                  </>
-                                ) : (
-                                  "Mark complete"
-                                )}
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() =>
-                                  ask(`Help me with step ${i + 1}: ${s.title}.`)
-                                }
-                              >
-                                Ask about this
-                              </Button>
+                        <div
+                          className="step-reveal"
+                          inert={selectedStep?.id !== s.id}
+                          id={`step-content-${s.id}`}
+                        >
+                          <div className="step-reveal-inner">
+                            <div className="step-content">
+                              <StepDiagram
+                                step={s}
+                                project={project}
+                                onRetry={() => send("", "diagrams")}
+                                busy={Boolean(job)}
+                              />
+                              <StepInstructions step={s} />
+                              <div className="expected">
+                                <CheckCheck size={16} />
+                                <span>{s.expectedResult}</span>
+                              </div>
+                              {s.precautions.length > 0 && (
+                                <details className="precautions">
+                                  <summary>Things to keep in mind</summary>
+                                  {s.precautions.map((p, i) => (
+                                    <p key={i}>{p}</p>
+                                  ))}
+                                </details>
+                              )}
+                              <div className="inline-actions">
+                                <Button
+                                  size="sm"
+                                  variant={
+                                    project.progress.completed[s.id]
+                                      ? "outline"
+                                      : "default"
+                                  }
+                                  disabled={
+                                    !project.progress.completed[s.id] &&
+                                    !canComplete(project, s)
+                                  }
+                                  onClick={() =>
+                                    act(
+                                      "step",
+                                      s.id,
+                                      !project.progress.completed[s.id],
+                                    )
+                                  }
+                                >
+                                  {project.progress.completed[s.id] ? (
+                                    <>
+                                      <Check size={14} />
+                                      Done
+                                    </>
+                                  ) : (
+                                    "Mark complete"
+                                  )}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() =>
+                                    ask(
+                                      `Help me with step ${i + 1}: ${s.title}.`,
+                                    )
+                                  }
+                                >
+                                  Ask about this
+                                </Button>
+                              </div>
                             </div>
                           </div>
-                        )}
+                        </div>
                       </article>
                     ))}
                   </div>

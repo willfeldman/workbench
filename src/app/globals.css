@@ -767,9 +767,25 @@ textarea {
   margin: 0 0 17px;
   max-width: 560px;
 }
-.project-facts {display:flex;flex-wrap:wrap;gap:8px;color:#68715e;font-size:11px;}
-.project-facts > span {display:inline-flex;align-items:center;gap:7px;padding:7px 10px;border-radius:var(--radius-compact);background:#f5f6f1;border:1px solid #ebede4;}
-.project-facts svg {color:#8c967f;}
+.project-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: #68715e;
+  font-size: 11px;
+}
+.project-facts > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  border-radius: var(--radius-compact);
+  background: #f5f6f1;
+  border: 1px solid #ebede4;
+}
+.project-facts svg {
+  color: #8c967f;
+}
 .preview-footer {
   display: flex;
   justify-content: space-between;
@@ -1815,5 +1831,252 @@ textarea {
   background: #f3f4ef;
 }
 
-.sidebar-top .wordmark { width: 28px; height: 32px; align-items: center; justify-content: center; }
-.wordmark .workbench-logo { width: 23px; height: 19px; margin: 0; display: block; }
+.sidebar-top .wordmark {
+  width: 28px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+}
+.wordmark .workbench-logo {
+  width: 23px;
+  height: 19px;
+  margin: 0;
+  display: block;
+}
+
+/* Quiet, consistent motion: responsive controls, short spatial transitions. */
+:root {
+  --motion-quick: 130ms;
+  --motion-standard: 200ms;
+  --motion-layout: 240ms;
+  --ease-out: cubic-bezier(0.2, 0.75, 0.25, 1);
+}
+:where(button, a, input, textarea),
+.ui-button,
+.select-trigger,
+.select-option {
+  transition:
+    background-color var(--motion-quick) ease,
+    color var(--motion-quick) ease,
+    border-color var(--motion-quick) ease,
+    opacity var(--motion-quick) ease,
+    transform var(--motion-quick) var(--ease-out);
+}
+:is(
+    .ui-button,
+    .send-button,
+    .suggestions button,
+    .question-options button
+  ):active:not(:disabled) {
+  transform: scale(0.98);
+  transition-duration: 70ms;
+}
+.select-trigger svg {
+  transition: transform var(--motion-standard) var(--ease-out);
+}
+.select-trigger[data-state="open"] svg {
+  transform: rotate(180deg);
+}
+.select-menu[data-state="open"] {
+  animation: menu-in var(--motion-standard) var(--ease-out);
+}
+.select-menu[data-state="closed"] {
+  animation: menu-out 100ms ease-in;
+}
+.workspace-body,
+.home-intro,
+.login-card,
+.revision-panel {
+  animation: surface-in var(--motion-standard) var(--ease-out);
+}
+.message,
+.proposal,
+.project-search {
+  animation: surface-in var(--motion-standard) var(--ease-out);
+}
+.settings-modal {
+  animation: menu-in var(--motion-standard) var(--ease-out);
+}
+.modal-scrim,
+.sidebar-scrim {
+  animation: fade-in 160ms ease-out;
+}
+.toast {
+  animation: fade-in var(--motion-standard) ease-out;
+}
+.step-reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    grid-template-rows var(--motion-layout) var(--ease-out),
+    opacity 150ms ease,
+    visibility 0s var(--motion-layout);
+}
+.step-reveal-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+.guide-step.expanded .step-reveal {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
+}
+.guide-step .step-heading > svg {
+  transition: transform var(--motion-standard) var(--ease-out);
+}
+.app-shell {
+  --sidebar-width: 222px;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  transition: grid-template-columns var(--motion-layout) var(--ease-out);
+}
+.app-shell.sidebar-hidden {
+  grid-template-columns: 0px minmax(0, 1fr);
+}
+.sidebar {
+  width: var(--sidebar-width);
+  min-width: 0;
+  transition:
+    transform var(--motion-layout) var(--ease-out),
+    opacity 160ms ease,
+    visibility 0s;
+}
+.sidebar-hidden .sidebar {
+  display: flex;
+  transform: translateX(-100%);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    transform var(--motion-layout) var(--ease-out),
+    opacity 160ms ease,
+    visibility 0s var(--motion-layout);
+}
+@media (min-width: 1600px) {
+  .app-shell {
+    --sidebar-width: 245px;
+  }
+}
+@media (max-width: 1150px) {
+  .app-shell {
+    --sidebar-width: 190px;
+  }
+}
+@media (max-width: 900px) {
+  .app-shell,
+  .app-shell.sidebar-hidden {
+    --sidebar-width: 222px;
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 680px) {
+  .content-layout.show-workspace .workspace,
+  .content-layout.show-chat .conversation {
+    animation: surface-in var(--motion-standard) var(--ease-out);
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes surface-in {
+  from {
+    opacity: 0;
+    translate: 0 4px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    scale: 0.98;
+    translate: 0 -3px;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+    translate: 0 0;
+  }
+}
+@keyframes menu-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    scale: 0.99;
+  }
+}
+/* Same-origin document navigation gets a gentle crossfade where supported. */
+@view-transition {
+  navigation: auto;
+}
+::view-transition-old(root) {
+  animation: fade-in 140ms ease reverse;
+}
+::view-transition-new(root) {
+  animation: fade-in 180ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none !important;
+  }
+}
+
+.has-workspace .conversation {
+  position: relative;
+}
+.pane-divider {
+  position: absolute;
+  inset: 0 -4px 0 auto;
+  width: 8px;
+  z-index: 20;
+  cursor: col-resize;
+  touch-action: none;
+}
+.pane-divider:focus-visible {
+  outline: 0;
+}
+.pane-divider:focus-visible::after {
+  content: "";
+  position: absolute;
+  inset: 0 3px;
+  background: #8a927f;
+}
+.content-layout[data-resizing] {
+  cursor: col-resize;
+  user-select: none;
+}
+.content-layout[data-resizing] canvas {
+  pointer-events: none;
+}
+@media (min-width: 681px) {
+  .content-layout[style*="--chat-width"] .conversation {
+    flex: 0 0 clamp(280px, var(--chat-width), calc(100% - 320px));
+    width: clamp(280px, var(--chat-width), calc(100% - 320px));
+    min-width: 280px;
+    max-width: none;
+  }
+}
+@media (max-width: 680px) {
+  .pane-divider {
+    display: none;
+  }
+}
