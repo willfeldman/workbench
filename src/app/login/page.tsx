@@ -2,7 +2,6 @@
 import { WorkbenchLogo } from "@/components/workbench-logo";
 import { useState } from "react";
 import { createBrowserClient } from "@supabase/ssr";
-import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 export default function Login() {
   const [email, setEmail] = useState(""),
@@ -58,7 +57,6 @@ export default function Login() {
             />
             <Button disabled={busy}>
               {busy ? "Sending…" : "Continue with email"}
-              <ArrowRight size={16} />
             </Button>
           </form>
         )}

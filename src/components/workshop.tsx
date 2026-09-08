@@ -8,7 +8,6 @@ import {
   Clock3,
   Gauge,
   Wallet,
-  ArrowRight,
   Plus,
   SquarePen,
   PanelLeftClose,
@@ -611,12 +610,12 @@ export default function Workbench({
                     <div className="proposal-diff">
                       <span>Materials</span>
                       <span>
-                        {project.spec?.materials.length ?? 0} →{" "}
+                        {project.spec?.materials.length ?? 0} to{" "}
                         {project.proposal.spec.materials.length}
                       </span>
                       <span>Estimated total</span>
                       <span>
-                        {money(totals(project.spec!).total)} →{" "}
+                        {money(totals(project.spec!).total)} to{" "}
                         {money(totals(project.proposal.spec).total)}
                       </span>
                       <span>Dimensions</span>
@@ -810,7 +809,6 @@ export default function Workbench({
                   </div>
                   <button className="explore-example" onClick={example}>
                     Explore an example
-                    <ArrowRight size={14} />
                   </button>
                 </>
               ) : (
@@ -997,7 +995,6 @@ export default function Workbench({
                       </Button>
                       <Button size="sm" onClick={() => setTab("Guide")}>
                         View guide
-                        <ArrowRight size={15} />
                       </Button>
                     </div>
                   </>
@@ -1023,7 +1020,6 @@ export default function Workbench({
                           }
                         >
                           Confirm in chat
-                          <ArrowRight size={13} />
                         </button>
                       </div>
                     )}
@@ -1401,7 +1397,6 @@ export default function Workbench({
             )}
             <a href="/demo" className="setting-row">
               Example project
-              <ArrowRight size={16} />
             </a>
             {!preview && !local && (
               <Button
@@ -1418,7 +1413,6 @@ export default function Workbench({
             {preview && (
               <a href="/login" className="sign-in-link">
                 Sign in to start your own
-                <ArrowRight size={14} />
               </a>
             )}
           </section>
