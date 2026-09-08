@@ -1,0 +1,11 @@
+node_modules/
+.next/
+.env*
+!.env.example
+.vercel/
+.trigger/
+.local/
+test-results/
+playwright-report/
+*.tsbuildinfo
+/.swc
