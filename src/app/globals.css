@@ -2068,7 +2068,7 @@ textarea {
   pointer-events: none;
 }
 @media (min-width: 681px) {
-  .content-layout[style*="--chat-width"] .conversation {
+  .has-workspace .content-layout[style*="--chat-width"] .conversation {
     flex: 0 0 clamp(280px, var(--chat-width), calc(100% - 320px));
     width: clamp(280px, var(--chat-width), calc(100% - 320px));
     min-width: 280px;

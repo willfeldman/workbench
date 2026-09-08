@@ -12,9 +12,7 @@ export default function LoginForm({
   configured: boolean;
   initialError?: string;
 }) {
-  const [email, setEmail] = useState(""),
-    [sent, setSent] = useState(false),
-    [busy, setBusy] = useState(false),
+  const [busy, setBusy] = useState(false),
     [error, setError] = useState(initialError);
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -26,18 +24,15 @@ export default function LoginForm({
         key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
       if (!url || !key)
         throw new Error("Sign-in is being set up. Please check back shortly.");
-      const { error } = await createBrowserClient(url, key).auth.signInWithOtp({
-        email: email.trim(),
+      const { error } = await createBrowserClient(url, key).auth.signInWithOAuth({
+        provider: "google",
         options: {
-          shouldCreateUser: !invitationRequired,
-          emailRedirectTo: location.origin + "/auth/callback",
+          redirectTo: location.origin + "/auth/callback",
         },
       });
       if (error) throw error;
-      setSent(true);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Sign-in failed.");
-    } finally {
+    } catch {
+      setError("We couldn’t start Google sign-in. Please try again.");
       setBusy(false);
     }
   }
@@ -48,44 +43,18 @@ export default function LoginForm({
       </a>
       <div className="login-card">
         <WorkbenchLogo />
-        <h1>{sent ? "Check your inbox" : "Welcome to Workbench"}</h1>
-        <p>
-          {sent
-            ? "Follow the sign-in link to open your workspace."
-            : "A little help making something of your own."}
-        </p>
+        <h1>Welcome to Workbench</h1>
+        <p>A little help making something of your own.</p>
         {!configured && (
           <p role="status">
             Sign-in is being set up. Please check back shortly.
           </p>
         )}
-        {!sent && (
-          <form onSubmit={submit}>
-            <input
-              aria-label="Email address"
-              type="email"
-              autoComplete="email"
-              required
-              placeholder="Email address"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-            <Button disabled={busy || !configured}>
-              {busy ? "Sending…" : "Continue with email"}
-            </Button>
-          </form>
-        )}
-        {sent && (
-          <button
-            className="quiet-link"
-            onClick={() => {
-              setSent(false);
-              setError("");
-            }}
-          >
-            Use a different email
-          </button>
-        )}
+        <form onSubmit={submit} aria-busy={busy}>
+          <Button disabled={busy || !configured}>
+            {busy ? "Opening Google…" : "Continue with Google"}
+          </Button>
+        </form>
         {error && (
           <p role="alert" className="error-text">
             {error}

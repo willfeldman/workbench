@@ -113,3 +113,46 @@ test("divider resizing persists and reduced motion keeps the guide usable", asyn
     .poll(async () => Math.abs((await pane.boundingBox())!.width - initial))
     .toBeLessThan(2);
 });
+
+test("new project fills the main area after resizing and preserves the saved split", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name === "mobile",
+    "The mobile workspace uses one pane at a time.",
+  );
+  await page.goto("/demo");
+  const conversation = page.getByRole("region", { name: "Project conversation" });
+  const composer = page.locator(".composer");
+  const homeWidth = (await conversation.boundingBox())!.width;
+  const composerWidth = (await composer.boundingBox())!.width;
+  await page
+    .getByRole("button", { name: "Explore an example", exact: true })
+    .click();
+  await page.getByRole("separator", { name: "Resize conversation" }).press("Home");
+  await expect
+    .poll(async () => (await conversation.boundingBox())!.width)
+    .toBe(280);
+  const savedSplit = (await conversation.boundingBox())!.width;
+
+  await page.getByRole("button", { name: "New project", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "What would you like to make?" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("separator", { name: "Resize conversation" }),
+  ).toHaveCount(0);
+  await expect
+    .poll(async () => Math.abs((await conversation.boundingBox())!.width - homeWidth))
+    .toBeLessThan(2);
+  await expect
+    .poll(async () => Math.abs((await composer.boundingBox())!.width - composerWidth))
+    .toBeLessThan(2);
+
+  await page
+    .getByRole("button", { name: "A home for your plants", exact: true })
+    .click();
+  await expect
+    .poll(async () => Math.abs((await conversation.boundingBox())!.width - savedSplit))
+    .toBeLessThan(2);
+});

@@ -54,7 +54,7 @@ async function main() {
   await openai.models.retrieve(process.env.OPENAI_MODEL || "gpt-6-astra");
   console.log("Planning model: accessible");
   console.log(
-    "Readiness checks passed. Real email delivery, two-account isolation and a full generation still require an end-to-end check.",
+    "Readiness checks passed. Google sign-in, two-account isolation and a full generation still require an end-to-end check.",
   );
 }
 main().catch((error) => {

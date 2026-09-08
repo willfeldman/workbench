@@ -9,11 +9,11 @@ export default async function Login({
   const { error } = await searchParams;
   return (
     <LoginForm
-      configured={hosted()}
+      configured={hosted() && process.env.WORKSHOP_GOOGLE_LOGIN === "true"}
       invitationRequired={inviteOnly()}
       initialError={
-        error === "expired"
-          ? "That sign-in link has expired or was already used. Request a new one below."
+        error
+          ? "Sign-in wasn’t completed. Please try again."
           : ""
       }
     />

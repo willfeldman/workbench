@@ -11,7 +11,7 @@ Workbench is an AI workspace for physical projects. Describe an idea, work throu
 - Full guides with short action paragraphs, generated step illustrations, part dimensions, progress, final photos, and print layouts
 - Material/tool ownership, pack-aware cost estimates, and researched US retailer links
 - Versioned plans, reviewable photo suggestions, undo/restore, and preserved completed work
-- Public email signup with private accounts and image storage using Supabase; optional invitation restriction
+- Google sign-in with private accounts and image storage using Supabase; optional invitation restriction
 - Durable background execution on **Vercel Workflows** — no Trigger.dev account
 - Optional AI illustrations using the newest supported model available to the account, independent of the interactive 3D preview
 - An explicit example workspace at `/demo`, usable without credentials
@@ -35,10 +35,10 @@ For a single-user development workspace, set `WORKSHOP_LOCAL_MODE=true` and prov
 1. Create a dedicated Supabase project. Enable Data API and automatic RLS. Do not automatically expose new tables.
 2. Apply `supabase/migrations/202609080001_workshop.sql` in the Supabase SQL editor or using the Supabase CLI. This creates private project records, beta membership, usage/event tables, write functions, and private image storage.
 3. In Supabase Authentication, enable public signups and keep email confirmation enabled. Set Site URL to the deployment origin and allow `<origin>/auth/callback` and `<origin>/auth/confirm` as redirect URLs.
-4. For invitation emails, use a confirmation link of `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite`. For confirmation and magic-link emails, use `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email`. Configure a custom SMTP provider with a verified sender before launch. Supabase’s default mail service only delivers to project team members, so it cannot support public signup.
+4. Configure a Google OAuth web client for this app. Use the deployment origin as its authorized JavaScript origin and `https://<project-ref>.supabase.co/auth/v1/callback` as its authorized redirect URI. Enable Google's provider in Supabase with that client ID and secret. Use only basic identity scopes (`openid`, `email`, `profile`) and make the Google OAuth audience available to the intended users. Set server-only `WORKSHOP_GOOGLE_LOGIN=true` in Vercel only after this setup is complete. Google sign-in does not require a custom email domain or SMTP provider.
 5. Import this repository into Vercel as a Next.js application. Configure the environment variables below for the target deployment environments. Keep `WORKSHOP_LOCAL_MODE` and `WORKSHOP_TEST_AI` disabled.
 6. Deploy. `withWorkflow` generates the workflow endpoints and uses Vercel’s managed infrastructure. No separate worker deployment or worker account is required.
-7. Public signup is enabled by default. To run an invitation-only beta instead, set `WORKSHOP_INVITE_ONLY=true`, disable new signups in Supabase, and add beta users intentionally. The provided admin script sends an invitation and adds membership: `node --import tsx scripts/invite.ts person@example.com`. Do not run it without intending to send that invitation. Alternatively add an existing auth user’s ID to `beta_members` through the Supabase dashboard.
+7. Public signup is enabled by default. To restrict project access instead, set `WORKSHOP_INVITE_ONLY=true` and add approved existing auth users’ IDs to `beta_members` through the Supabase dashboard. Email invitations are optional and require custom SMTP with a verified sender for recipients outside the Supabase project team. The admin script `node --import tsx scripts/invite.ts person@example.com` sends an invitation and adds membership; run it only when intentionally inviting someone. For invitation emails, use `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite` as the confirmation link.
 8. Run the service check and a real new project, then verify login, photo ownership, background resumption, sourcing, revisions, and mobile build flow before inviting more users.
 
 OpenAI model requests go directly to OpenAI and are charged to that account. Vercel execution/persistence and Supabase usage are separate. Vercel Workflow does not consume OpenAI credits.
@@ -57,6 +57,8 @@ OpenAI model requests go directly to OpenAI and are charged to that account. Ver
 | `WORKSHOP_DAILY_RUN_LIMIT`             | Daily per-account generation requests; default 30                            |
 | `WORKSHOP_LOCAL_MODE`                  | Explicit local development persistence; default false                        |
 | `WORKSHOP_TEST_AI`                     | Deterministic local test fixture; default false, never enabled for users     |
+| `WORKSHOP_GOOGLE_LOGIN`                | Server-only sign-in readiness flag; enable after configuring Google in Supabase |
+| `WORKSHOP_INVITE_ONLY`                 | Require membership in `beta_members`; default false                          |
 
 Image model availability is account-specific. A model being listed in documentation does not establish account access. `npm run check:services` checks model metadata; a real generation is still needed to verify inference. The app preserves its guide and 3D preview when illustration generation fails. Each generated step image gets a separate Astra consistency review before it is shown. A rejected illustration gets one corrective attempt in a separate durable step; failed images then have an explicit retry control. Images belong to a revision; only unchanged steps can reuse an earlier illustration.
 
