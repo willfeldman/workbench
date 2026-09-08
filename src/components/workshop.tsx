@@ -399,7 +399,7 @@ export default function Workbench({
             className="wordmark"
           >
             Workbench
-            <span className="wordmark-dot" />
+            
           </a>
           <Button
             variant="ghost"

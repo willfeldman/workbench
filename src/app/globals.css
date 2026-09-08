@@ -164,12 +164,6 @@ textarea {
   gap: 3px;
   align-items: baseline;
 }
-.wordmark-dot {
-  width: 4px;
-  height: 4px;
-  background: #7d8872;
-  border-radius: 50%;
-}
 .sidebar-actions {
   padding: 12px 12px 0;
 }
