@@ -219,10 +219,12 @@ export default function SceneView({
   spec,
   units,
   highlight = [],
+  onUnitsChange,
 }: {
   spec: Spec;
   units: Project["units"];
   highlight?: string[];
+  onUnitsChange?: (units: Project["units"]) => void;
 }) {
   const [dimensions, setDimensions] = useState(false),
     [reset, setReset] = useState(0);
@@ -314,7 +316,7 @@ export default function SceneView({
                 />
                 <Html position={[0, -0.01, depth + 0.85]} center>
                   <span className="dimension-label">
-                    {formatLength(spec.dimensionsMm[0], units)}
+                    Width {formatLength(spec.dimensionsMm[0], units)}
                   </span>
                 </Html>
                 <Line
@@ -327,7 +329,7 @@ export default function SceneView({
                 />
                 <Html position={[half + 0.8, height / 2, 0]} center>
                   <span className="dimension-label">
-                    {formatLength(spec.dimensionsMm[1], units)}
+                    Height {formatLength(spec.dimensionsMm[1], units)}
                   </span>
                 </Html>
               </>
@@ -345,6 +347,10 @@ export default function SceneView({
           </Suspense>
         </Canvas>
       </SceneBoundary>
+      {dimensions && <div className="measurement-panel" aria-label="Project measurements">
+        <div>{["Width", "Height", "Depth"].map((label, index) => <span key={label}><small>{label}</small>{formatLength(spec.dimensionsMm[index], units)}</span>)}</div>
+        {onUnitsChange && <button className="unit-toggle" aria-label="Change measurement units" onClick={() => onUnitsChange(units === "imperial" ? "metric" : "imperial")}>{units === "imperial" ? "in" : "mm"}</button>}
+      </div>}
       <div className="scene-controls">
         <Button
           variant="ghost"

@@ -266,7 +266,7 @@ export function totals(
   );
 }
 export function activeJob(p: Project) {
-  return p.jobs.findLast((j) => j.state === "queued" || j.state === "running");
+  return p.jobs.findLast((j) => j.mode !== "diagrams" && (j.state === "queued" || j.state === "running"));
 }
 export function safePublicUrl(raw: string) {
   try {
@@ -351,18 +351,50 @@ export function validateScene(input: unknown, spec: Spec): Scene {
   return scene;
 }
 export function changedCompletedSteps(p: Project, next: Spec) {
-  return Object.keys(p.progress.completed).filter((id) => {
-    const before = p.spec?.steps.find((s) => s.id === id),
-      after = next.steps.find((s) => s.id === id);
-    if (JSON.stringify(before) !== JSON.stringify(after)) return true;
-    return (
-      before?.partIds.some(
-        (pid) =>
-          JSON.stringify(p.spec?.parts.find((x) => x.id === pid)) !==
-          JSON.stringify(next.parts.find((x) => x.id === pid)),
-      ) ?? false
-    );
-  });
+  const previous = p.spec;
+  const signature = (spec: Spec | null, stepId: string) => {
+    const step = spec?.steps.find((s) => s.id === stepId);
+    if (!spec || !step) return undefined;
+    const parts = step.partIds.map((id) => spec.parts.find((part) => part.id === id));
+    const materialIds = [...new Set([
+      ...step.materialIds,
+      ...parts.flatMap((part) => part ? [part.materialId] : []),
+    ])].sort();
+    return JSON.stringify({
+      step,
+      parts,
+      materials: materialIds.map((id) => {
+        const material = spec.materials.find((m) => m.id === id);
+        if (!material) return { id, missing: true };
+        // Retail listings and price changes do not change the physical work.
+        const { name, specification, quantity, unit } = material;
+        return { id, name, specification, quantity, unit };
+      }),
+      tools: [...step.toolIds].sort().map((id) => {
+        const tool = spec.tools.find((t) => t.id === id);
+        return tool
+          ? { id, name: tool.name, specification: tool.specification }
+          : { id, missing: true };
+      }),
+    });
+  };
+  const steps = [...(previous?.steps ?? []), ...next.steps];
+  const affected = new Set(
+    steps.filter((step) => signature(previous, step.id) !== signature(next, step.id))
+      .map((step) => step.id),
+  );
+  // Changes to earlier work can invalidate completed dependent work, even if
+  // its own instructions are unchanged. Consider old and new dependencies.
+  let expanded = true;
+  while (expanded) {
+    expanded = false;
+    for (const step of steps)
+      if (!affected.has(step.id) && step.dependsOn.some((id) => affected.has(id))) {
+        affected.add(step.id);
+        expanded = true;
+      }
+  }
+  return Object.keys(p.progress.completed).filter((id) => affected.has(id));
 }
 export function stepVisualSignature(spec: Spec, stepId: string) {
   const step = spec.steps.find((step) => step.id === stepId);

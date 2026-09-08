@@ -2098,3 +2098,59 @@ textarea {
     display: none;
   }
 }
+
+/* Shared, quiet build information across Preview, Guide, and Progress. */
+.measurement-panel {
+  position: absolute; bottom: 14px; left: 14px; right: 14px;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-control);
+  background: rgb(255 255 255 / 94%); font-size: 12px;
+}
+.measurement-panel > div { display: flex; flex-wrap: wrap; gap: 20px; }
+.measurement-panel span { display: grid; gap: 3px; }
+.measurement-panel small { color: #777b70; font-size: 10px; }
+.guide { container-type: inline-size; }
+.step-layout { display: grid; grid-template-columns: minmax(120px, 32%) minmax(0, 1fr); gap: 20px; align-items: start; }
+.step-layout .step-illustration { margin: 0; }
+.step-layout .step-image-unavailable { padding: 18px 12px; background: #f7f7f3; border-radius: var(--radius-control); align-items: flex-start; }
+.step-detail { min-width: 0; }
+.step-image-open { display: block; width: 100%; position: relative; cursor: zoom-in; }
+.step-image-open > svg { position: absolute; right: 8px; bottom: 8px; padding: 5px; box-sizing: content-box; border-radius: 7px; background: rgb(255 255 255 / 90%); color: #585c51; }
+.step-resources { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.step-resources button { display: flex; align-items: center; gap: 7px; border: 1px solid var(--border); border-radius: 10px; padding: 7px 9px; text-align: left; font-size: 11px; line-height: 1.4; color: #555b4e; }
+.step-resources svg { flex-shrink: 0; color: #7f8774; }
+.step-resources button:hover { background: #f4f5ef; }
+.step-instructions strong { font-weight: 550; color: #34382f; }
+.essential-note { display: flex; align-items: flex-start; gap: 7px; color: #78705e; font-size: 11px; line-height: 1.65; margin: 14px 0 0; }
+.essential-note svg { margin-top: 2px; flex-shrink: 0; }
+.step-blocked { color: #81704b; font-size: 11px; line-height: 1.65; }
+.diagram-progress { display: flex; gap: 8px; align-items: center; color: #74796a; font-size: 11px; padding: 14px 0; }
+.next-step-card { background: #f6f6f1; border: 1px solid #e9ebe3; border-radius: var(--radius-surface); padding: 20px; margin: 22px 0 14px; }
+.next-step-card > span { font-size: 11px; color: #777f6d; }
+.next-step-card h3 { font-size: 17px; font-weight: 550; margin: 7px 0 17px; line-height: 1.4; }
+.next-step-card p { font-size: 12px; line-height: 1.65; color: #777567; }
+.progress-step.needs-review { background: transparent; }
+.progress-step.needs-review small { color: #8b7853; }
+.illustration-dialog, .change-dialog { border: 1px solid var(--border); border-radius: 20px; padding: 24px; margin: auto; color: var(--foreground); box-shadow: 0 18px 70px rgb(0 0 0 / 12%); }
+.illustration-dialog::backdrop, .change-dialog::backdrop { background: rgb(31 36 25 / 35%); backdrop-filter: blur(3px); }
+.illustration-dialog { max-width: min(1100px, 94vw); max-height: 94dvh; padding: 40px 14px 14px; }
+.illustration-dialog > button { position: absolute; right: 8px; top: 6px; }
+.illustration-dialog img { display: block; max-width: 100%; max-height: 80dvh; width: auto; height: auto; border-radius: 10px; }
+.change-dialog { width: min(420px, 92vw); }
+.change-dialog h2 { font-size: 17px; }
+.change-dialog label { display: block; font-size: 12px; margin: 18px 0 9px; }
+.change-dialog textarea { resize: vertical; width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: #fafaf7; font-size: 13px; margin-bottom: 14px; }
+@container (max-width: 430px) {
+  .step-layout { grid-template-columns: 1fr; gap: 16px; }
+  .step-layout .step-illustration { max-width: 220px; }
+  .step-layout .step-image-unavailable { max-width: 220px; }
+}
+@media (max-width: 680px) {
+  .measurement-panel { padding: 10px; gap: 8px; }
+  .measurement-panel > div { gap: 12px; }
+  .step-content { padding-left: 0; }
+  .inline-actions { flex-wrap: wrap; }
+}
+@media print {
+  .illustration-dialog, .change-dialog { display: none !important; }
+}

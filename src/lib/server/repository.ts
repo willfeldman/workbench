@@ -3,6 +3,7 @@ import path from "node:path";
 import { adminClient, HttpError } from "./supabase";
 import { localMode } from "./config";
 import type { Project } from "../project";
+import { dailyRunLimit, quotaRequestId } from "../request-quota";
 const root = path.join(process.cwd(), ".local");
 let gate: Promise<unknown> = Promise.resolve();
 async function locked<T>(fn: () => Promise<T>): Promise<T> {
@@ -110,8 +111,9 @@ export async function mutateProject(
   };
   return localMode() ? locked(run) : run();
 }
-export async function reserveRun(owner: string, requestId: string) {
-  const limit = Number(process.env.WORKSHOP_DAILY_RUN_LIMIT || 30);
+export async function reserveRun(owner: string, requestId: string, projectId: string) {
+  const limit = dailyRunLimit();
+  const reservationId = quotaRequestId(projectId, requestId);
   if (localMode())
     return locked(async () => {
       await fs.mkdir(root, { recursive: true });
@@ -120,7 +122,7 @@ export async function reserveRun(owner: string, requestId: string) {
       try {
         entries = JSON.parse(await fs.readFile(location, "utf8"));
       } catch {}
-      if (entries.some((x) => x.id === requestId && x.owner === owner)) return;
+      if (entries.some((x) => x.id === reservationId && x.owner === owner)) return;
       const day = new Date().toISOString().slice(0, 10);
       if (
         entries.filter((x) => x.owner === owner && x.at.startsWith(day))
@@ -130,12 +132,12 @@ export async function reserveRun(owner: string, requestId: string) {
           429,
           "Your daily generation limit has been reached. Your saved guides are still available.",
         );
-      entries.push({ id: requestId, owner, at: new Date().toISOString() });
+      entries.push({ id: reservationId, owner, at: new Date().toISOString() });
       await fs.writeFile(location, JSON.stringify(entries), { mode: 0o600 });
     });
   const { data, error } = await adminClient().rpc("reserve_run", {
     p_owner: owner,
-    p_request: requestId,
+    p_request: reservationId,
     p_limit: limit,
   });
   if (error) throw error;

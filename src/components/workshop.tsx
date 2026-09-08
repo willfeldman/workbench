@@ -40,9 +40,11 @@ import {
   Image as ImageIcon,
   Loader2,
   LogOut,
-  CheckCheck,
+  Expand,
+  AlertCircle,
 } from "lucide-react";
 import { Button } from "./ui/button";
+import { shoppingSource, stepStatus, essentialPrecautions } from "@/lib/build-display";
 import { exampleProject } from "@/lib/example";
 import {
   activeJob,
@@ -112,7 +114,9 @@ export default function Workbench({
     [mobilePane, setMobilePane] = useState<"chat" | "workspace">("workspace"),
     [stepId, setStepId] = useState<string | null>(null),
     [illustrated, setIllustrated] = useState(false),
-    [loading, setLoading] = useState(!preview);
+    [loading, setLoading] = useState(!preview),
+    [alternative, setAlternative] = useState<{ name: string; kind: "material" | "tool" } | null>(null),
+    [alternativeText, setAlternativeText] = useState("");
   const textarea = useRef<HTMLTextAreaElement>(null),
     fileInput = useRef<HTMLInputElement>(null),
     bottom = useRef<HTMLDivElement>(null),
@@ -216,23 +220,51 @@ export default function Workbench({
     };
   }, [preview, openProject, notify]);
   const job = project ? activeJob(project) : undefined;
+  const pollingJob = project?.jobs.findLast((j) => j.state === "queued" || j.state === "running");
+  const diagramJob = project?.jobs.findLast((j) => j.mode === "diagrams" && (j.state === "queued" || j.state === "running"));
   useEffect(() => {
-    if (!project || preview || !job) return;
+    if (!project || preview || !pollingJob) return;
     const id = project.id;
+    const controller = new AbortController();
     let alive = true;
-    const timer = setInterval(async () => {
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      if (!alive || selectedId.current !== id) return;
+      try {
+        const data = await api(`/api/projects/${id}`, { signal: controller.signal });
+        if (alive && selectedId.current === id) adopt(data.project);
+      } catch (e) {
+        if (alive && selectedId.current === id) notify((e as Error).message);
+      } finally {
+        // Wait for the response before scheduling again, even on slow networks.
+        if (alive && selectedId.current === id) timer = setTimeout(poll, 1800);
+      }
+    };
+    timer = setTimeout(poll, 1800);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [project?.id, pollingJob?.id, preview, adopt, notify]);
+  useEffect(() => {
+    if (!project || preview || !(project.photos.length || project.stepImages?.length || project.illustrations?.length)) return;
+    const id = project.id;
+    let alive = true, refreshing = false;
+    const refresh = async () => {
+      if (document.hidden || refreshing || selectedId.current !== id) return;
+      refreshing = true;
       try {
         const data = await api(`/api/projects/${id}`);
         if (alive && selectedId.current === id) adopt(data.project);
-      } catch (e) {
-        if (alive) notify((e as Error).message);
-      }
-    }, 1800);
-    return () => {
-      alive = false;
-      clearInterval(timer);
+      } catch { /* Keep the saved guide usable during a temporary disconnect. */ }
+      finally { refreshing = false; }
     };
-  }, [project?.id, job?.id, preview, adopt, notify]);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    const timer = setInterval(refresh, 50 * 60 * 1000);
+    return () => { alive = false; clearInterval(timer); window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refresh); };
+  }, [project?.id, Boolean(project?.photos.length || project?.stepImages?.length || project?.illustrations?.length), preview, adopt]);
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [project?.messages.length, job?.stage]);
@@ -320,7 +352,7 @@ export default function Workbench({
       adopt(next);
       setMobilePane("chat");
     } catch (e) {
-      setInput(oldInput);
+      setInput(mode === "message" ? text : oldInput);
       setPendingPhotos(photos);
       notify((e as Error).message);
     } finally {
@@ -334,6 +366,7 @@ export default function Workbench({
       if (action === "step") {
         if (value) {
           p.progress.completed[id!] = new Date().toISOString();
+          p.progress.rework = p.progress.rework.filter((step) => step !== id);
         } else delete p.progress.completed[id!];
       } else if (action === "material" || action === "tool") {
         const list =
@@ -426,18 +459,22 @@ export default function Workbench({
     hasWorkspace = Boolean(spec),
     home = !project?.messages.length && !spec,
     units = project?.units ?? "imperial";
-  const cost = spec ? totals(spec, project?.progress.materials) : null,
+  const cost = spec ? totals(spec, project?.progress.materials) : null;
+  const shoppingCost = spec ? totals({ ...spec, materials: [...spec.materials, ...spec.tools.map((tool) => ({ ...tool, quantity: 1, unit: "tool" }))] }, { ...project?.progress.materials, ...project?.progress.tools }) : null;
+  const
     completed =
       spec?.steps.filter(
         (s) =>
           project?.progress.completed[s.id] &&
           !project?.progress.rework.includes(s.id),
       ).length ?? 0;
+  const reviewCount = spec?.steps.filter((s) => project?.progress.rework.includes(s.id)).length ?? 0;
+  const nextStep = spec?.steps.find((s) => project && (!project.progress.completed[s.id] || project.progress.rework.includes(s.id)) && !stepStatus(project, s).blocked) ?? spec?.steps.find((s) => !project?.progress.completed[s.id] || project?.progress.rework.includes(s.id));
   const selectedStep =
     stepId === "none"
       ? undefined
       : (spec?.steps.find((s) => s.id === stepId) ??
-        spec?.steps.find((s) => !project?.progress.completed[s.id]) ??
+        nextStep ??
         spec?.steps[0]);
   useEffect(() => {
     if (preview && project?.id === "example-planter")
@@ -989,18 +1026,6 @@ export default function Workbench({
                       <div>
                         <h2>{spec.title}</h2>
                       </div>
-                      <button
-                        className="unit-toggle"
-                        onClick={() =>
-                          act(
-                            "units",
-                            undefined,
-                            units === "imperial" ? "metric" : "imperial",
-                          )
-                        }
-                      >
-                        {units === "imperial" ? "in" : "mm"}
-                      </button>
                     </div>
                     {illustrated && currentIllustration?.url ? (
                       <div className="concept-image">
@@ -1018,6 +1043,7 @@ export default function Workbench({
                                 ?.spec ?? spec)
                         }
                         units={units}
+                        onUnitsChange={(value) => act("units", undefined, value)}
                       />
                     )}
                     {spec.sceneError && (
@@ -1032,13 +1058,6 @@ export default function Workbench({
                           )}
                       </div>
                     )}
-                    <div className="preview-caption">
-                      <span>
-                        {spec.dimensionsMm
-                          .map((x) => formatLength(x, units))
-                          .join(" × ")}
-                      </span>
-                    </div>
                     <div className="preview-summary">
                       <p>{spec.summary}</p>
                       <div className="project-facts">
@@ -1130,6 +1149,7 @@ export default function Workbench({
                         ),
                       )}
                     </details>
+                    {diagramJob && <div className="diagram-progress" role="status"><Loader2 size={14} className="spin" />{diagramJob.stage || "Preparing step illustrations…"}</div>}
                     {spec.steps.map((s, i) => (
                       <article
                         key={s.id}
@@ -1154,7 +1174,7 @@ export default function Workbench({
                           </span>
                           <span>
                             {s.title}
-                            <small>{s.minutes} min</small>
+                            <small>{s.minutes} min{stepStatus(project, s).completed || stepStatus(project, s).review ? ` · ${stepStatus(project, s).label}` : ""}</small>
                           </span>
                           <ChevronDown size={15} />
                         </button>
@@ -1165,25 +1185,15 @@ export default function Workbench({
                         >
                           <div className="step-reveal-inner">
                             <div className="step-content">
-                              <StepDiagram
-                                step={s}
-                                project={project}
-                                onRetry={() => send("", "diagrams")}
-                                busy={Boolean(job)}
-                              />
-                              <StepInstructions step={s} />
-                              <div className="expected">
-                                <CheckCheck size={16} />
-                                <span>{s.expectedResult}</span>
+                              <div className="step-layout">
+                                <StepDiagram step={s} project={project} onRetry={() => send("", "diagrams")} busy={Boolean(diagramJob)} />
+                                <div className="step-detail">
+                                  <StepResources step={s} spec={spec} onOpen={() => setTab("Materials")} />
+                                  <StepInstructions step={s} />
+                                  {essentialPrecautions(s).map((note, index) => <p className="essential-note" key={index}><AlertCircle size={14} aria-hidden="true" />{note}</p>)}
+                                  {stepStatus(project, s).reason && (!stepStatus(project, s).completed || stepStatus(project, s).review) && <p className="step-blocked">{stepStatus(project, s).reason}</p>}
+                                </div>
                               </div>
-                              {s.precautions.length > 0 && (
-                                <details className="precautions">
-                                  <summary>Things to keep in mind</summary>
-                                  {s.precautions.map((p, i) => (
-                                    <p key={i}>{p}</p>
-                                  ))}
-                                </details>
-                              )}
                               <div className="inline-actions">
                                 <Button
                                   size="sm"
@@ -1193,18 +1203,18 @@ export default function Workbench({
                                       : "default"
                                   }
                                   disabled={
-                                    !project.progress.completed[s.id] &&
+                                    (!project.progress.completed[s.id] || project.progress.rework.includes(s.id)) &&
                                     !canComplete(project, s)
                                   }
                                   onClick={() =>
                                     act(
                                       "step",
                                       s.id,
-                                      !project.progress.completed[s.id],
+                                      !project.progress.completed[s.id] || project.progress.rework.includes(s.id),
                                     )
                                   }
                                 >
-                                  {project.progress.completed[s.id] ? (
+                                  {project.progress.rework.includes(s.id) ? "Confirm reviewed" : project.progress.completed[s.id] ? (
                                     <>
                                       <Check size={14} />
                                       Done
@@ -1237,8 +1247,8 @@ export default function Workbench({
                     <div className="document-heading">
                       <h2>Everything you need</h2>
                       <span>
-                        {money(cost?.total ?? 0)}
-                        {cost?.unknown ? " + unpriced items" : ""}
+                        Remaining {money(shoppingCost?.total ?? 0)}
+                        {shoppingCost?.unknown ? " + unpriced items" : ""}
                       </span>
                     </div>
                     <div className="list-section">
@@ -1250,9 +1260,7 @@ export default function Workbench({
                           state={project.progress.materials[m.id]}
                           onChange={(value) => act("material", m.id, value)}
                           onAlternative={() =>
-                            ask(
-                              `Find a suitable alternative for ${m.name}, keeping the project constraints.`,
-                            )
+                            setAlternative({ name: m.name, kind: "material" })
                           }
                         />
                       ))}
@@ -1266,31 +1274,17 @@ export default function Workbench({
                           state={project.progress.tools[t.id]}
                           onChange={(value) => act("tool", t.id, value)}
                           onAlternative={() =>
-                            ask(
-                              `I don’t have ${t.name}. Can we adapt the build?`,
-                            )
+                            setAlternative({ name: t.name, kind: "tool" })
                           }
                         />
                       ))}
                     </div>
                     <p className="materials-note">
                       Estimates in USD, before tax and shipping. Listing prices
-                      can change. Owned and purchased materials are excluded
+                      can change. Owned and purchased materials and tools are excluded
                       from the remaining total.
                     </p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={Boolean(job)}
-                      onClick={() =>
-                        send(
-                          "Find current US product listings for the required materials and tools. Keep the same design and dimensions.",
-                        )
-                      }
-                    >
-                      <Search size={14} />
-                      Find materials
-                    </Button>
+
                   </div>
                 )}
                 {tab === "Progress" && (
@@ -1302,7 +1296,7 @@ export default function Workbench({
                           : "One step at a time"}
                       </h2>
                       <span>
-                        {completed} of {spec.steps.length}
+                        {spec.steps.filter((s) => project.progress.completed[s.id]).length} of {spec.steps.length} completed{reviewCount ? ` · ${reviewCount} to review` : ""}
                       </span>
                     </div>
                     <div className="progress-track">
@@ -1312,10 +1306,12 @@ export default function Workbench({
                         }}
                       />
                     </div>
-                    {project.progress.rework.length > 0 && (
-                      <div className="notice">
-                        The latest revision affects completed work. Recheck the
-                        highlighted steps before continuing.
+                    {nextStep && !project.progress.finishedAt && (
+                      <div className="next-step-card">
+                        <span>{stepStatus(project, nextStep).review ? "Review your work" : "Up next"}</span>
+                        <h3>{nextStep.title}</h3>
+                        {stepStatus(project, nextStep).reason && <p>{stepStatus(project, nextStep).reason}</p>}
+                        <Button size="sm" onClick={() => { setStepId(nextStep.id); setTab("Guide"); }}>Continue building</Button>
                       </div>
                     )}
                     {spec.steps.map((s, i) => (
@@ -1325,9 +1321,9 @@ export default function Workbench({
                       >
                         <button
                           className="progress-check"
-                          aria-label={`${project.progress.completed[s.id] ? "Uncomplete" : "Complete"} ${s.title}`}
+                          aria-label={`${project.progress.rework.includes(s.id) ? "Confirm reviewed" : project.progress.completed[s.id] ? "Uncomplete" : "Complete"} ${s.title}`}
                           disabled={
-                            !project.progress.completed[s.id] &&
+                            (!project.progress.completed[s.id] || project.progress.rework.includes(s.id)) &&
                             !canComplete(project, s)
                           }
                           onClick={() =>
@@ -1339,8 +1335,7 @@ export default function Workbench({
                             )
                           }
                         >
-                          {project.progress.completed[s.id] &&
-                          !project.progress.rework.includes(s.id) ? (
+                          {project.progress.completed[s.id] ? (
                             <Check size={17} />
                           ) : (
                             <Circle size={18} />
@@ -1355,9 +1350,9 @@ export default function Workbench({
                         >
                           <span>{s.title}</span>
                           <small>
-                            {project.progress.rework.includes(s.id)
-                              ? "Review changes"
-                              : `Step ${i + 1} · ${s.minutes} min`}
+                            {stepStatus(project, s).completed || stepStatus(project, s).review
+                              ? stepStatus(project, s).label
+                              : stepStatus(project, s).reason ?? `Step ${i + 1} · ${s.minutes} min`}
                           </small>
                         </button>
                         <Button
@@ -1454,6 +1449,10 @@ export default function Workbench({
           </button>
         </div>
       )}
+      {alternative && <AlternativeDialog name={alternative.name} value={alternativeText} onChange={setAlternativeText} onClose={() => { setAlternative(null); setAlternativeText(""); }} onSubmit={() => {
+        const request = `Please adapt the project’s ${alternative.kind} choice: ${alternative.name}. ${alternativeText.trim()} Update the plan, affected instructions, quantities, sourcing, and preview as needed. Preserve completed work and owned or purchased items, and flag any work that needs review.`;
+        setAlternative(null); setAlternativeText(""); send(request);
+      }} busy={sending || Boolean(job)} />}
       {settings && (
         <div className="modal-scrim" onClick={() => setSettings(false)}>
           <section
@@ -1525,12 +1524,40 @@ export default function Workbench({
   );
 }
 
+function StepResources({ step, spec, onOpen }: { step: Step; spec: Spec; onOpen: () => void }) {
+  const materialIds = new Set([...step.materialIds, ...spec.parts.filter((part) => step.partIds.includes(part.id)).map((part) => part.materialId)]);
+  const resources = [...spec.materials.filter((item) => materialIds.has(item.id)).map((item) => ({ ...item, Icon: Box })), ...spec.tools.filter((tool) => step.toolIds.includes(tool.id)).map((tool) => ({ ...tool, Icon: Hammer }))];
+  if (!resources.length) return null;
+  return <div className="step-resources" aria-label="For this step">{resources.map(({ id, name, specification, Icon }) => <button key={id} onClick={onOpen} title={specification}><Icon size={15} aria-hidden="true" /><span>{name}</span></button>)}</div>;
+}
+
+function AlternativeDialog({ name, value, onChange, onClose, onSubmit, busy }: { name: string; value: string; onChange: (value: string) => void; onClose: () => void; onSubmit: () => void; busy: boolean }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => { dialog.current?.showModal(); }, []);
+  const close = () => { dialog.current?.close(); onClose(); };
+  return <dialog ref={dialog} className="change-dialog" aria-label={`Change ${name}`} onCancel={(event) => { event.preventDefault(); close(); }} onClick={(event) => { if (event.target === event.currentTarget) close(); }}>
+    <form onSubmit={(event) => { event.preventDefault(); if (value.trim() && !busy) onSubmit(); }}>
+      <div className="modal-heading"><h2>Change {name}</h2><Button variant="ghost" size="icon" aria-label="Close change request" onClick={close} type="button"><X size={18} /></Button></div>
+      <label htmlFor="alternative-reason">What would work better for you?</label>
+      <textarea id="alternative-reason" autoFocus value={value} onChange={(event) => onChange(event.target.value)} placeholder="I don’t have this, or I’d like to use…" rows={3} />
+      <Button type="submit" size="sm" disabled={!value.trim() || busy}>Update plan</Button>
+    </form>
+  </dialog>;
+}
+
+function IllustrationDialog({ url, alt, onClose }: { url: string; alt: string; onClose: () => void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => { dialog.current?.showModal(); }, []);
+  const close = () => { dialog.current?.close(); onClose(); };
+  return <dialog ref={dialog} className="illustration-dialog" aria-label="Step illustration" onCancel={(event) => { event.preventDefault(); close(); }} onClick={(event) => { if (event.target === event.currentTarget) close(); }}><Button size="icon" variant="ghost" aria-label="Close illustration" onClick={close}><X size={20} /></Button><img src={url} alt={alt} /></dialog>;
+}
+
 function StepInstructions({ step }: { step: Step }) {
   const actions = step.instructions.split(/\n\s*\n/).filter(Boolean);
   return (
     <div className="step-instructions">
       {actions.map((action, i) => (
-        <p key={i}>{action}</p>
+        <p key={i}>{(() => { const match = action.match(/^(.{8,90}?[.!?])(?:\s+)([\s\S]+)$/); return match ? <><strong>{match[1]}</strong> {match[2]}</> : action; })()}</p>
       ))}
     </div>
   );
@@ -1546,6 +1573,8 @@ function StepDiagram({
   onRetry?: () => void;
   busy?: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const imageButton = useRef<HTMLButtonElement>(null);
   const illustration = project.stepImages?.findLast(
     (image) =>
       image.stepId === step.id &&
@@ -1554,7 +1583,8 @@ function StepDiagram({
   if (illustration?.url && illustration.state === "ready")
     return (
       <figure className="step-illustration">
-        <img src={illustration.url} alt={illustration.alt} loading="lazy" />
+        {onRetry ? <button ref={imageButton} className="step-image-open" aria-label={`Enlarge illustration for ${step.title}`} onClick={() => setExpanded(true)}><img src={illustration.url} alt={illustration.alt} loading="lazy" /><Expand size={15} aria-hidden="true" /></button> : <img src={illustration.url} alt={illustration.alt} loading="lazy" />}
+        {expanded && <IllustrationDialog url={illustration.url} alt={illustration.alt} onClose={() => { setExpanded(false); imageButton.current?.focus(); }} />}
       </figure>
     );
   if (!onRetry) return null;
@@ -1563,14 +1593,14 @@ function StepDiagram({
       {busy ? (
         <>
           <Loader2 size={16} className="spin" />
-          <span>Illustrating the steps…</span>
+          <span>{illustration?.state === "failed" ? "Illustration unavailable" : "Illustration on its way…"}</span>
         </>
       ) : (
         <button onClick={onRetry}>
           <ImageIcon size={16} />
           {illustration?.state === "failed"
-            ? "Retry step illustrations"
-            : "Illustrate the steps"}
+            ? "Retry illustrations"
+            : "Illustrate steps"}
         </button>
       )}
     </div>
@@ -1588,7 +1618,7 @@ function ShoppingItem({
   onAlternative: () => void;
 }) {
   const cost = materialCost(item),
-    source = item.sources[0];
+    source = shoppingSource(item);
   return (
     <article className={`shopping-item ${state ? "is-owned" : ""}`}>
       <div className="shopping-item-main">
@@ -1603,15 +1633,15 @@ function ShoppingItem({
           <h4>{item.name}</h4>
           <p>{item.specification}</p>
           <span className="quantity">
-            {item.quantity} {item.unit}
+            Need {item.quantity} {item.unit}
             {source
               ? source.price === null
                 ? " · Confirm with supplier"
-                : ` · Buy ${Math.ceil(item.quantity / source.packQuantity)} pack(s)`
+                : ` · Buy ${Math.ceil(item.quantity / source.packQuantity)} ${Math.ceil(item.quantity / source.packQuantity) === 1 ? "pack" : "packs"} of ${source.packQuantity}`
               : ""}
           </span>
         </div>
-        <span className="item-price">{cost === null ? "—" : money(cost)}</span>
+        <span className="item-price">{cost === null ? "Price unavailable" : `${money(cost)}${source?.price == null ? " est." : ""}`}</span>
       </div>
       <div className="shopping-item-actions">
         <Select
@@ -1682,10 +1712,10 @@ function PrintGuide({
           </strong>
           <br />
           {m.specification}
-          {m.sources[0] && (
+          {shoppingSource(m) && (
             <>
               <br />
-              {m.sources[0].url}
+              {shoppingSource(m)?.url}
             </>
           )}
         </p>

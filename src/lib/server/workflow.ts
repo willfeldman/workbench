@@ -2,6 +2,7 @@ import {
   generateStepImage,
   imageModel,
   IllustrationReviewError,
+  IllustrationGenerationError,
 } from "./image-generation";
 import { getProject, mutateProject, recordEvent } from "./repository";
 import { adminClient } from "./supabase";
@@ -9,7 +10,6 @@ import { localMode, fixtureAI, requireEnv } from "./config";
 import { interpret, generateGuide, generateScene, sourceItems } from "./ai";
 import {
   validateSpec,
-  stepVisualSignature,
   validateScene,
   changedCompletedSteps,
   publishRevision,
@@ -19,15 +19,10 @@ import {
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import OpenAI from "openai";
+import { assertJobCurrent, queueDiagrams, diagramProgress } from "../illustration-jobs";
 async function state(owner: string, id: string, jobId: string, label: string) {
   return mutateProject(owner, id, (p) => {
-    const j = p.jobs.find((j) => j.id === jobId);
-    if (
-      !j ||
-      j.state === "cancelled" ||
-      p.currentRevisionId !== j.baseRevisionId
-    )
-      throw new Error("Request superseded");
+    const j = assertJobCurrent(p, jobId);
     j.state = "running";
     j.heartbeatAt = new Date().toISOString();
     j.error = null;
@@ -97,7 +92,7 @@ export async function intentStep(owner: string, id: string, jobId: string) {
   const done = ["clarify", "answer"].includes(intent.action);
   await mutateProject(owner, id, (d) => {
     const j = d.jobs.find((x) => x.id === jobId)!;
-    if (j.state === "cancelled") return;
+    if (!["queued", "running"].includes(j.state) || j.baseRevisionId !== d.currentRevisionId) return;
     j.intent = intent;
     if (done) {
       if (!d.spec) d.title = intent.title;
@@ -127,7 +122,7 @@ export async function guideStep(owner: string, id: string, jobId: string) {
     await generateGuide(p, usage(owner, id, jobId), await images(p)),
   );
   await mutateProject(owner, id, (d) => {
-    d.jobs.find((x) => x.id === jobId)!.draft = draft;
+    assertJobCurrent(d, jobId).draft = draft;
   });
 }
 export async function sourcingStep(owner: string, id: string, jobId: string) {
@@ -144,7 +139,7 @@ export async function sourcingStep(owner: string, id: string, jobId: string) {
     );
   }
   await mutateProject(owner, id, (d) => {
-    d.jobs.find((x) => x.id === jobId)!.draft = validateSpec(draft);
+    assertJobCurrent(d, jobId).draft = validateSpec(draft);
   });
 }
 export async function sceneStep(owner: string, id: string, jobId: string) {
@@ -165,35 +160,16 @@ export async function sceneStep(owner: string, id: string, jobId: string) {
       "The preview could not be generated. Your guide is ready; retry the preview when you’re ready.";
   }
   await mutateProject(owner, id, (d) => {
-    d.jobs.find((x) => x.id === jobId)!.draft = validateSpec(draft);
+    assertJobCurrent(d, jobId).draft = validateSpec(draft);
   });
 }
-export async function diagramPlanStep(
-  owner: string,
-  id: string,
-  jobId: string,
-) {
+export async function diagramPlanStep(owner: string, id: string, jobId: string) {
   "use step";
   const p = await state(owner, id, jobId, "Preparing step illustrations");
-  const j = p.jobs.find((j) => j.id === jobId)!;
-  const spec = j.draft ?? p.spec;
-  if (!spec) return [];
-  return spec.steps
-    .filter((step) => {
-      const ready = p.stepImages?.some(
-        (image) =>
-          image.revisionId === p.currentRevisionId &&
-          image.stepId === step.id &&
-          image.state === "ready",
-      );
-      return (
-        !ready ||
-        !p.spec ||
-        stepVisualSignature(p.spec, step.id) !==
-          stepVisualSignature(spec, step.id)
-      );
-    })
-    .map((step) => step.id);
+  if (!p.spec) return [];
+  return p.spec.steps.filter((step) => !p.stepImages?.some((image) =>
+    image.revisionId === p.currentRevisionId && image.stepId === step.id && image.state === "ready"
+  )).map((step) => step.id);
 }
 export async function diagramStep(
   owner: string,
@@ -203,13 +179,13 @@ export async function diagramStep(
   correction?: string,
 ) {
   "use step";
-  const p = await state(owner, id, jobId, "Illustrating each step");
+  const before = await getProject(owner, id);
+  const p = await state(owner, id, jobId, diagramProgress(before, jobId));
   const j = p.jobs.find((j) => j.id === jobId)!;
-  const spec = j.draft ?? p.spec;
+  const spec = p.spec;
   const step = spec?.steps.find((step) => step.id === stepId);
   if (!spec || !step) throw new Error("Missing step");
-  const revisionId =
-    j.mode === "diagrams" ? p.currentRevisionId! : jobId + "-revision";
+  const revisionId = j.baseRevisionId!;
   if (
     p.stepImages?.some(
       (image) =>
@@ -221,6 +197,7 @@ export async function diagramStep(
     return;
   const imageId = jobId + "-" + stepId;
   await mutateProject(owner, id, (d) => {
+    assertJobCurrent(d, jobId);
     d.stepImages ??= [];
     d.stepImages = d.stepImages.filter((image) => image.id !== imageId);
     d.stepImages.push({
@@ -252,12 +229,7 @@ export async function diagramStep(
       if (error) throw error;
     }
     await mutateProject(owner, id, (d) => {
-      const current = d.jobs.find((j) => j.id === jobId)!;
-      if (
-        current.state === "cancelled" ||
-        current.baseRevisionId !== d.currentRevisionId
-      )
-        return;
+      assertJobCurrent(d, jobId);
       const image = d.stepImages?.find((image) => image.id === imageId);
       if (image)
         Object.assign(image, {
@@ -266,6 +238,11 @@ export async function diagramStep(
           alt: result.alt,
           model: result.model,
         });
+    });
+    await mutateProject(owner, id, d => {
+      const job = assertJobCurrent(d, jobId);
+      job.stage = diagramProgress(d, jobId);
+      job.heartbeatAt = new Date().toISOString();
     });
     await recordEvent(owner, id, "step_image_generated", {
       stepId,
@@ -282,9 +259,13 @@ export async function diagramStep(
     );
     await mutateProject(owner, id, (d) => {
       const image = d.stepImages?.find((image) => image.id === imageId);
+      const job = d.jobs.find((j) => j.id === jobId);
+      if (!job || !["queued", "running"].includes(job.state) || job.baseRevisionId !== d.currentRevisionId) return;
       if (image) image.state = "failed";
+      job.stage = diagramProgress(d, jobId);
+      job.heartbeatAt = new Date().toISOString();
     });
-    await recordEvent(owner, id, "step_image_failed", { stepId });
+    await recordEvent(owner, id, "step_image_failed", { stepId, stage: error instanceof IllustrationGenerationError ? error.stage : "storage", code: error instanceof IllustrationGenerationError ? error.code : "unavailable", corrected: Boolean(correction) });
     if (error instanceof IllustrationReviewError) return error.message;
   }
 }
@@ -296,10 +277,11 @@ export async function finishDiagramsStep(
   "use step";
   await mutateProject(owner, id, (d) => {
     const j = d.jobs.find((j) => j.id === jobId)!;
-    if (j.state === "cancelled" || j.baseRevisionId !== d.currentRevisionId)
+    if (!["queued", "running"].includes(j.state) || j.baseRevisionId !== d.currentRevisionId)
       return;
     j.state = "complete";
-    j.stage = "Ready";
+    const failed = d.spec?.steps.filter(step => !d.stepImages?.some(image => image.revisionId === j.baseRevisionId && image.stepId === step.id && image.state === "ready")).length ?? 0;
+    j.stage = failed ? `Illustrations finished · ${failed} unavailable` : "Illustrations ready";
     j.error = null;
     j.finishedAt = new Date().toISOString();
   });
@@ -307,12 +289,11 @@ export async function finishDiagramsStep(
 export async function publishStep(owner: string, id: string, jobId: string) {
   "use step";
   const current = await getProject(owner, id);
-  if (current.jobs.find((x) => x.id === jobId)?.state === "complete") return;
+  if (current.jobs.find((x) => x.id === jobId)?.state === "complete")
+    return current.jobs.find(j => j.id === jobId + "-diagrams" && ["queued", "running"].includes(j.state) && j.baseRevisionId === current.currentRevisionId)?.id ?? null;
   await state(owner, id, jobId, "Checking the pieces fit together");
-  await mutateProject(owner, id, (d) => {
-    const j = d.jobs.find((x) => x.id === jobId)!;
-    if (j.state === "cancelled" || d.currentRevisionId !== j.baseRevisionId)
-      throw new Error("Request superseded");
+  const published = await mutateProject(owner, id, (d) => {
+    const j = assertJobCurrent(d, jobId);
     if (!j.draft) throw new Error("Missing draft");
     const spec = validateSpec(j.draft);
     const r: Revision = {
@@ -329,7 +310,10 @@ export async function publishStep(owner: string, id: string, jobId: string) {
     };
     const inferred = j.intent?.action === "propose";
     if (inferred) d.proposal = r;
-    else publishRevision(d, r);
+    else {
+      publishRevision(d, r);
+      queueDiagrams(d, jobId + "-diagrams", j.workflowRunId);
+    }
     if (!d.messages.some((m) => m.id === jobId + "-reply"))
       d.messages.push({
         id: jobId + "-reply",
@@ -353,6 +337,7 @@ export async function publishStep(owner: string, id: string, jobId: string) {
     delete j.draft;
   });
   await recordEvent(owner, id, "generation_complete", { jobId });
+  return published.jobs.find(j => j.id === jobId + "-diagrams")?.id ?? null;
 }
 export async function illustrationStep(
   owner: string,
@@ -390,9 +375,7 @@ export async function illustrationStep(
     if (error) throw error;
   }
   await mutateProject(owner, id, (d) => {
-    const j = d.jobs.find((x) => x.id === jobId)!;
-    if (j.state === "cancelled" || d.currentRevisionId !== j.baseRevisionId)
-      return;
+    const j = assertJobCurrent(d, jobId);
     d.illustrations ??= [];
     if (!d.illustrations.some((x) => x.id === jobId))
       d.illustrations.push({
@@ -423,39 +406,33 @@ export async function failStep(owner: string, id: string, jobId: string) {
   });
   await recordEvent(owner, id, "generation_failed", { jobId });
 }
-// Local development invokes these same stages directly. Hosted execution checkpoints each stage through Vercel Workflow.
+// Local execution mirrors the hosted workflow; published guides remain available during images.
 export async function runWorkflow(owner: string, id: string, jobId: string) {
+  let activeId = jobId;
   try {
     const mode = await intentStep(owner, id, jobId);
     if (mode === "done") return;
-    if (mode === "illustration") {
-      await illustrationStep(owner, id, jobId);
-      return;
-    }
-    if (mode === "diagrams") {
-      for (const stepId of await diagramPlanStep(owner, id, jobId)) {
-        const correction = await diagramStep(owner, id, jobId, stepId);
-        if (correction) await diagramStep(owner, id, jobId, stepId, correction);
+    if (mode === "illustration") { await illustrationStep(owner, id, jobId); return; }
+    if (mode !== "diagrams") {
+      if (mode === "message") {
+        await guideStep(owner, id, jobId);
+        await sourcingStep(owner, id, jobId);
       }
-      await finishDiagramsStep(owner, id, jobId);
-      return;
+      await sceneStep(owner, id, jobId);
+      const next = await publishStep(owner, id, jobId);
+      if (!next) return;
+      activeId = next;
     }
-    if (mode === "message") {
-      await guideStep(owner, id, jobId);
-      await sourcingStep(owner, id, jobId);
-    }
-    await sceneStep(owner, id, jobId);
-    if (mode === "message")
-      for (const stepId of await diagramPlanStep(owner, id, jobId)) {
-        const correction = await diagramStep(owner, id, jobId, stepId);
-        if (correction) await diagramStep(owner, id, jobId, stepId, correction);
+    const steps = await diagramPlanStep(owner, id, activeId);
+    await Promise.all([0, 1].map(async lane => {
+      for (let i = lane; i < steps.length; i += 2) {
+        const correction = await diagramStep(owner, id, activeId, steps[i]);
+        if (correction) await diagramStep(owner, id, activeId, steps[i], correction);
       }
-    await publishStep(owner, id, jobId);
+    }));
+    await finishDiagramsStep(owner, id, activeId);
   } catch (e) {
-    console.error(
-      "Generation failed",
-      e instanceof Error ? e.message : "Unknown",
-    );
-    await failStep(owner, id, jobId);
+    console.error("Generation failed", e instanceof Error ? e.message : "Unknown");
+    await failStep(owner, id, activeId);
   }
 }

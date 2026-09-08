@@ -25,13 +25,13 @@ test("example workspace, guide, materials, progress and persistence", async ({
     page.getByLabel("Status for Cedar boards", { exact: true }),
   ).toHaveText("Already have");
   await page.getByRole("tab", { name: "Progress", exact: true }).click();
-  await expect(page.getByText("1 of 5", { exact: true })).toBeVisible();
+  await expect(page.getByText("1 of 5 completed", { exact: true })).toBeVisible();
   await page.reload();
   await page
     .getByRole("button", { name: "Explore an example", exact: true })
     .click();
   await page.getByRole("tab", { name: "Progress", exact: true }).click();
-  await expect(page.getByText("1 of 5", { exact: true })).toBeVisible();
+  await expect(page.getByText("1 of 5 completed", { exact: true })).toBeVisible();
   await page.getByRole("tab", { name: "Preview", exact: true }).click();
   await expect(page.locator("canvas")).toHaveAttribute("data-rendered", "true");
   await page.screenshot({

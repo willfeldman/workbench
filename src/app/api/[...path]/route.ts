@@ -29,27 +29,37 @@ import {
   type Project,
   type Job,
 } from "@/lib/project";
+import { queueDiagrams } from "@/lib/illustration-jobs";
 import { runWorkflow } from "@/lib/server/workflow";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 async function present(p: Project) {
   const d = structuredClone(p);
-  for (const photo of [
-    ...d.photos,
-    ...(d.illustrations ?? []),
-    ...(d.stepImages ?? []),
-  ]) {
-    if (!photo.path) continue;
-    if (localMode()) photo.url = `/api/projects/${p.id}/photos/${photo.id}`;
-    else {
-      const { data } = await adminClient()
-        .storage.from("project-photos")
-        .createSignedUrl(photo.path, 3600);
-      photo.url = data?.signedUrl;
+  const assets = [...d.photos, ...(d.illustrations ?? []), ...(d.stepImages ?? [])];
+  if (localMode()) {
+    for (const asset of assets) {
+      if (asset.path) asset.url = `/api/projects/${p.id}/photos/${asset.id}`;
+    }
+    return d;
+  }
+  // One request per poll, even when unchanged illustrations share a stored object
+  // across revisions. Only this owned project's storage namespace may be signed.
+  const prefix = `${p.ownerId}/${p.id}/`;
+  const paths = [...new Set(assets.map(asset => asset.path).filter((value): value is string =>
+    Boolean(value && value.startsWith(prefix) && !value.split("/").some(segment => segment === "." || segment === ".."))
+  ))];
+  const urls = new Map<string, string>();
+  if (paths.length) {
+    const { data } = await adminClient().storage.from("project-photos").createSignedUrls(paths, 3600);
+    const allowed = new Set(paths);
+    for (const item of data ?? []) {
+      if (item.path && allowed.has(item.path) && item.signedUrl && !item.error) urls.set(item.path, item.signedUrl);
     }
   }
+  for (const asset of assets) asset.url = asset.path ? urls.get(asset.path) : undefined;
   return d;
 }
+
 async function route(
   req: Request,
   ctx: { params: Promise<{ path: string[] }> },
@@ -81,21 +91,22 @@ async function route(
     const projectId = z.string().uuid().parse(segments[1]);
     if (segments.length === 2 && req.method === "GET") {
       let p = await getProject(owner, projectId);
-      const job = activeJob(p);
-      if (
-        job &&
-        Date.now() - Date.parse(job.heartbeatAt ?? job.startedAt) >
-          20 * 60 * 1000
-      )
-        p = await mutateProject(owner, projectId, (d) => {
-          const j = d.jobs.find((x) => x.id === job.id)!;
-          if (j.state === "running" || j.state === "queued") {
-            j.state = "failed";
-            j.stage = "Interrupted";
-            j.error =
-              "This request was interrupted. Your project is safe; please retry.";
-          }
+      for (const job of p.jobs.filter(j => ["queued", "running"].includes(j.state))) {
+        if (Date.now() - Date.parse(job.heartbeatAt ?? job.startedAt) <= 20 * 60 * 1000) continue;
+        // A quiet heartbeat alone is not evidence a durable job has stopped.
+        if (!job.workflowRunId) continue;
+        let status: string;
+        try { status = await getRun(job.workflowRunId).status; } catch { continue; }
+        if (!["failed", "cancelled", "completed"].includes(status)) continue;
+        p = await mutateProject(owner, projectId, d => {
+          const current = d.jobs.find(j => j.id === job.id)!;
+          if (!["running", "queued"].includes(current.state)) return;
+          current.state = status === "cancelled" ? "cancelled" : "failed";
+          current.stage = "Interrupted";
+          current.error = "This request was interrupted. Your saved guide and images are safe; please retry.";
+          current.finishedAt = new Date().toISOString();
         });
+      }
       return NextResponse.json({ project: await present(p) });
     }
     if (segments[2] === "messages" && req.method === "POST") {
@@ -114,6 +125,8 @@ async function route(
       const before = await getProject(owner, projectId);
       const old = before.jobs.find((j) => j.requestId === body.requestId);
       if (old) return NextResponse.json({ project: await present(before) });
+      if (body.mode === "diagrams" && before.jobs.some(j => j.mode === "diagrams" && j.baseRevisionId === before.currentRevisionId && ["queued", "running"].includes(j.state)))
+        return NextResponse.json({ project: await present(before) });
       if (activeJob(before))
         throw new HttpError(
           409,
@@ -124,10 +137,11 @@ async function route(
           503,
           "AI is not connected yet. Your project is saved.",
         );
-      await reserveRun(owner, body.requestId);
+      await reserveRun(owner, body.requestId, projectId);
       const jobId = crypto.randomUUID();
       let p = await mutateProject(owner, projectId, (d) => {
         if (d.jobs.some((j) => j.requestId === body.requestId)) return;
+        if (body.mode === "diagrams" && d.jobs.some(j => j.mode === "diagrams" && j.baseRevisionId === d.currentRevisionId && ["queued", "running"].includes(j.state))) return;
         if (activeJob(d))
           throw new HttpError(409, "A request is already running.");
         if (body.photoIds.some((id) => !d.photos.some((ph) => ph.id === id)))
@@ -203,7 +217,8 @@ async function route(
           value: z.union([z.boolean(), z.string()]).optional(),
         })
         .parse(await req.json());
-      const p = await mutateProject(owner, projectId, (d) => {
+      const diagramJobId = crypto.randomUUID();
+      let p = await mutateProject(owner, projectId, (d) => {
         if (
           ["accept", "reject", "undo", "restore"].includes(b.action) &&
           activeJob(d)
@@ -274,6 +289,7 @@ async function route(
             reworkStepIds: changedCompletedSteps(d, target.spec),
           });
         }
+        if (["accept", "undo", "restore"].includes(b.action)) queueDiagrams(d, diagramJobId);
         if (b.action === "finish") {
           if (
             !d.spec ||
@@ -286,7 +302,7 @@ async function route(
           d.progress.finishedAt = new Date().toISOString();
         }
         if (b.action === "cancel") {
-          const j = activeJob(d);
+          const j = b.id ? d.jobs.find(j => j.id === b.id && ["running", "queued"].includes(j.state)) : activeJob(d) ?? d.jobs.findLast(j => j.mode === "diagrams" && ["running", "queued"].includes(j.state));
           if (j) {
             j.state = "cancelled";
             j.finishedAt = new Date().toISOString();
@@ -295,11 +311,26 @@ async function route(
         }
       });
       if (b.action === "cancel") {
-        const j = p.jobs.at(-1);
-        if (j?.workflowRunId)
+        const j = b.id ? p.jobs.find(j => j.id === b.id) : p.jobs.findLast(j => j.state === "cancelled");
+        if (j?.state === "cancelled" && j.workflowRunId)
           try {
             await getRun(j.workflowRunId).cancel();
           } catch {}
+      }
+      if (p.jobs.some(j => j.id === diagramJobId)) {
+        if (localMode()) after(() => runWorkflow(owner, projectId, diagramJobId));
+        else {
+          try {
+            const handle = await start(projectWorkflow, [owner, projectId, diagramJobId]);
+            p = await mutateProject(owner, projectId, d => { d.jobs.find(j => j.id === diagramJobId)!.workflowRunId = handle.runId; });
+          } catch {
+            p = await mutateProject(owner, projectId, d => {
+              const job = d.jobs.find(j => j.id === diagramJobId)!;
+              job.state = "failed";
+              job.error = "Illustrations could not start. Your guide is ready; retry illustrations when you’re ready.";
+            });
+          }
+        }
       }
       await recordEvent(
         owner,
@@ -362,9 +393,22 @@ async function route(
           });
         if (error) throw error;
       }
-      const next = await mutateProject(owner, projectId, (d) => {
-        d.photos.push(photo);
-      });
+      let next: Project;
+      try {
+        next = await mutateProject(owner, projectId, (d) => {
+          if (d.photos.length >= 100) throw new HttpError(400, "This project has reached its photo limit.");
+          if (photo.stepId && !d.spec?.steps.some(step => step.id === photo.stepId)) throw new HttpError(409, "The step changed. Please attach the photo again.");
+          d.photos.push(photo);
+        });
+      } catch (error) {
+        // A network error may hide a successful commit: verify absence before cleanup.
+        const persisted = await getProject(owner, projectId).catch(() => null);
+        if (persisted && !persisted.photos.some(item => item.id === photo.id)) {
+          if (localMode()) await fs.unlink(path.join(process.cwd(), ".local", photo.path)).catch(() => {});
+          else await adminClient().storage.from("project-photos").remove([photo.path]).catch(() => {});
+        }
+        throw error;
+      }
       return NextResponse.json({
         project: await present(next),
         photoId: photo.id,
