@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 test("additional examples have independent saved progress and complete guides", async ({ page }, info) => {
   await page.goto("/demo");
-  await page.getByRole("button", { name: "More examples", exact: true }).click();
+  await page.getByRole("button", { name: "Explore an example", exact: true }).click();
   const picker = page.getByRole("dialog", { name: "Example projects", exact: true });
   await expect(picker).toBeVisible();
   await expect(picker.locator(".example-options > button")).toHaveCount(3);
@@ -13,7 +13,8 @@ test("additional examples have independent saved progress and complete guides", 
   await expect(step).toContainText("Cut the two blanks");
   await expect(step.locator(".step-image-unavailable")).toHaveCount(0);
   await expect(step.getByRole("button", { name: "Illustrate steps" })).toHaveCount(0);
-  expect(await step.locator(".step-layout").evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(1);
+  await expect(step.locator("img")).toBeVisible();
+  await expect.poll(() => step.locator("img").evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
   await step.getByRole("button", { name: "Mark complete", exact: true }).click();
   if (info.project.name === "mobile") await page.getByRole("button", { name: "Open sidebar", exact: true }).click();
   await page.locator(".project-list").getByRole("button", { name: "A hand-stitched felt pouch", exact: true }).click();

@@ -13,8 +13,8 @@ export function quotaRequestId(projectId: string, requestId: string) {
 }
 
 export function dailyRunLimit(value = process.env.WORKSHOP_DAILY_RUN_LIMIT) {
-  const limit = Number(value ?? 4);
-  return Number.isSafeInteger(limit) && limit > 0 ? limit : 4;
+  const limit = Number(value ?? 30);
+  return Number.isSafeInteger(limit) && limit > 0 ? limit : 30;
 }
 
 export function hasUnlimitedUsage(

@@ -128,6 +128,7 @@ export default function Workbench({
     uploadStep = useRef<string | null>(null),
     uploadBusy = useRef(false),
     fastBusy = useRef(false),
+    exampleBusy = useRef(false),
     dragDepth = useRef(0),
     selectedId = useRef<string | null>(null);
   useEffect(() => {
@@ -208,9 +209,15 @@ export default function Workbench({
     }
     let alive = true;
     api("/api/projects")
-      .then(({ projects: list }) => {
+      .then(async ({ projects: list }) => {
         if (!alive) return;
         setProjects(list);
+        const requested = new URLSearchParams(window.location.search).get("example");
+        if (examples.some(sample => sample.id === requested)) {
+          const { project: sample } = await post("/api/projects", { exampleId: requested });
+          if (alive) { adopt(sample); setLoading(false); }
+          return;
+        }
         const saved = localStorage.getItem("workshop:last-project");
         if (saved && list.some((p: Summary) => p.id === saved))
           openProject(saved);
@@ -314,19 +321,36 @@ export default function Workbench({
     localStorage.removeItem("workshop:last-project");
     textarea.current?.focus();
   }
-  function example(id = "example-planter") {
+  async function example(id = "example-planter") {
+    if (exampleBusy.current) return;
     const sample = examples.find((p) => p.id === id) ?? examples[0];
-    if (preview) {
-      adopt(savedExample(sample));
+    const selection = `opening-example:${sample.id}`;
+    const previousId = selectedId.current;
+    selectedId.current = selection;
+    exampleBusy.current = true;
+    setExamplePicker(false);
+    setLoading(true);
+    try {
+      const next = preview ? savedExample(sample) : (await post("/api/projects", { exampleId: sample.id })).project;
+      if (selectedId.current !== selection) return;
+      adopt(next);
       setTab("Preview");
       setStepId(null);
+      setHistory(false);
       setIllustrated(false);
       setPendingPhotos([]);
       setInput("");
       setMobilePane("workspace");
       if (window.matchMedia("(max-width:900px)").matches) setSidebar(false);
-    } else window.open(`/demo?example=${encodeURIComponent(sample.id)}`, "_blank", "noopener");
-    setExamplePicker(false);
+    } catch (error) {
+      if (selectedId.current === selection) {
+        selectedId.current = previousId;
+        notify((error as Error).message);
+      }
+    } finally {
+      exampleBusy.current = false;
+      setLoading(false);
+    }
   }
   async function send(
     text = input,
@@ -951,8 +975,7 @@ export default function Workbench({
                     ))}
                   </div>
                   <div className="example-links">
-                    <button className="explore-example" onClick={() => example()}>Explore an example</button>
-                    <button className="explore-example" onClick={() => setExamplePicker(true)}>More examples</button>
+                    <button className="explore-example" onClick={() => setExamplePicker(true)}>Explore an example</button>
                   </div>
                 </>
               ) : (
@@ -1526,9 +1549,9 @@ export default function Workbench({
                 />
               </label>
             )}
-            <a href="/demo" className="setting-row">
-              Example project
-            </a>
+            <button className="setting-row" onClick={() => { setSettings(false); setExamplePicker(true); }}>
+              Example projects
+            </button>
             {!preview && !local && (
               <Button
                 variant="outline"

@@ -182,6 +182,7 @@ export type StepImage = {
 export type Project = {
   id: string;
   ownerId: string;
+  sourceExampleId?: string;
   version: number;
   title: string;
   createdAt: string;

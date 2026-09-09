@@ -11,9 +11,10 @@ test("retries share a reservation but cross-project replays consume another", ()
   assert.match(first, /^[a-f0-9]{8}-[a-f0-9]{4}-5[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
 });
 
-test("invalid quota configuration falls back to four requests", () => {
+test("invalid quota configuration falls back to thirty requests", () => {
   for (const invalid of ["", "0", "-1", "NaN", "Infinity", "1.5"])
-    assert.equal(dailyRunLimit(invalid), 4);
+    assert.equal(dailyRunLimit(invalid), 30);
+  assert.equal(dailyRunLimit("30"), 30);
   assert.equal(dailyRunLimit("4"), 4);
   assert.equal(dailyRunLimit("8"), 8);
 });

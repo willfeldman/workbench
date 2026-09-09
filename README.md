@@ -2,6 +2,8 @@
 
 From an idea to something you made.
 
+**[Try Workbench live](https://workbench-astra.vercel.app/)** · [Explore the examples without signing in](https://workbench-astra.vercel.app/demo)
+
 Workbench is an AI workspace for physical projects. Describe an idea, work through a few useful questions, then build from a complete guide with an interactive 3D preview, materials, tools, and source-backed shopping links. Ask follow-up questions or upload progress photos to adapt the project as you go.
 
 ## What’s included
@@ -14,7 +16,7 @@ Workbench is an AI workspace for physical projects. Describe an idea, work throu
 - Google sign-in with private accounts and image storage using Supabase; optional invitation restriction
 - Durable background execution on **Vercel Workflows** — no Trigger.dev account
 - Optional AI illustrations using the newest supported model available to the account, independent of the interactive 3D preview
-- An explicit example workspace at `/demo`, usable without credentials
+- Three illustrated example projects at `/demo`, usable without credentials; signed-in users can open private, editable copies with saved progress
 
 ## Run locally
 
@@ -54,7 +56,7 @@ OpenAI model requests go directly to OpenAI and are charged to that account. Ver
 | `OPENAI_MODEL`                         | Defaults to `gpt-6-astra`                                                    |
 | `OPENAI_IMAGE_MODEL`                   | `auto` selects the newest available supported image model (Sunburst, Flare, then GPT Image 2); an explicit model overrides this |
 | `NEXT_PUBLIC_APP_URL`                  | Canonical app origin for authentication                                      |
-| `WORKSHOP_DAILY_RUN_LIMIT`             | Daily per-account AI requests; default 4; saved guides remain accessible      |
+| `WORKSHOP_DAILY_RUN_LIMIT`             | Daily per-account AI requests; default 30; saved guides remain accessible     |
 | `WORKSHOP_UNLIMITED_EMAILS`            | Server-only comma-separated verified emails exempt from the daily cap; usage is still recorded |
 | `WORKSHOP_LOCAL_MODE`                  | Explicit local development persistence; default false                        |
 | `WORKSHOP_TEST_AI`                     | Deterministic local test fixture; default false, never enabled for users     |

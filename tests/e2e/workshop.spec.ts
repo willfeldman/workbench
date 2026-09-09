@@ -9,6 +9,7 @@ test("example workspace, guide, materials, progress and persistence", async ({
   await page
     .getByRole("button", { name: "Explore an example", exact: true })
     .click();
+  await page.getByRole("dialog", { name: "Example projects" }).getByRole("button", { name: /A home for your plants/ }).click();
   await expect(page.getByRole("tabpanel", { name: "Preview" })).toBeVisible();
   await expect(page.locator("canvas")).toHaveAttribute("data-rendered", "true");
   await page.getByRole("tab", { name: "Guide", exact: true }).click();
@@ -30,6 +31,7 @@ test("example workspace, guide, materials, progress and persistence", async ({
   await page
     .getByRole("button", { name: "Explore an example", exact: true })
     .click();
+  await page.getByRole("dialog", { name: "Example projects" }).getByRole("button", { name: /A home for your plants/ }).click();
   await page.getByRole("tab", { name: "Progress", exact: true }).click();
   await expect(page.getByText("1 of 5 completed", { exact: true })).toBeVisible();
   await page.getByRole("tab", { name: "Preview", exact: true }).click();
@@ -50,6 +52,7 @@ test("a question keeps its draft and example mode does not pretend to run AI", a
   await page
     .getByRole("button", { name: "Explore an example", exact: true })
     .click();
+  await page.getByRole("dialog", { name: "Example projects" }).getByRole("button", { name: /A home for your plants/ }).click();
   if (testInfo.project.name === "mobile")
     await page.getByLabel("Conversation", { exact: true }).click();
   await page.getByLabel("Message Workbench").fill("Make it wider");
@@ -71,6 +74,7 @@ test("divider resizing persists and reduced motion keeps the guide usable", asyn
   await page
     .getByRole("button", { name: "Explore an example", exact: true })
     .click();
+  await page.getByRole("dialog", { name: "Example projects" }).getByRole("button", { name: /A home for your plants/ }).click();
   const pane = page.getByRole("region", { name: "Project conversation" });
   const divider = page.getByRole("separator", { name: "Resize conversation" });
   const initial = (await pane.boundingBox())!.width;
@@ -92,6 +96,7 @@ test("divider resizing persists and reduced motion keeps the guide usable", asyn
   await page
     .getByRole("button", { name: "Explore an example", exact: true })
     .click();
+  await page.getByRole("dialog", { name: "Example projects" }).getByRole("button", { name: /A home for your plants/ }).click();
   await expect
     .poll(async () => Math.abs((await pane.boundingBox())!.width - saved))
     .toBeLessThan(2);
@@ -129,6 +134,7 @@ test("new project fills the main area after resizing and preserves the saved spl
   await page
     .getByRole("button", { name: "Explore an example", exact: true })
     .click();
+  await page.getByRole("dialog", { name: "Example projects" }).getByRole("button", { name: /A home for your plants/ }).click();
   await page.getByRole("separator", { name: "Resize conversation" }).press("Home");
   await expect
     .poll(async () => (await conversation.boundingBox())!.width)

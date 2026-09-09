@@ -102,7 +102,26 @@ export function additionalExampleProjects(owner = "preview"): Project[] {
   ].map(({ id, spec, prompt, reply }) => {
     const project = newProject(owner);
     const revisionId = `${id}-v1`;
-    return { ...project, id, title: spec.title, spec, currentRevisionId: revisionId, stepImages: [],
+    const imagePrefix = id === "example-desk-organizer" ? "desk" : "felt";
+    const imageAlt = id === "example-desk-organizer" ? [
+      "Two flat kraft cardstock blanks cut for the tray and divider, beside a ruler, pencil, and scissors.",
+      "The flat tray blank with four fold lines and the divider blank with two end-tab lines.",
+      "Folding and taping the corner tabs inside a shallow kraft cardstock tray.",
+      "A central cardstock divider making two compartments, with its end tab fixed against the inside wall.",
+      "The finished two-compartment tray holding paper clips and a small sticky-note pad.",
+    ] : [
+      "Two matching midnight-blue felt panels laid flat beside fabric scissors, a ruler, and chalk.",
+      "Aligned felt panels clipped together with a U-shaped chalk stitch guide and an unmarked open top.",
+      "A needle threaded with cream embroidery floss, showing a short tail and a knot on the long end.",
+      "Cream running stitches joining the left, bottom, and part of the right edges of the blue felt panels.",
+      "The finished open-top blue felt pouch with a cream running-stitch seam and a charging cable inside.",
+    ];
+    return { ...project, id, title: spec.title, spec, currentRevisionId: revisionId,
+      stepImages: spec.steps.map((guideStep, index) => ({
+        id: `${id}-image-${guideStep.id}`, stepId: guideStep.id, revisionId,
+        state: "ready" as const, path: null, url: `/guide/${imagePrefix}-${guideStep.id}.webp`,
+        alt: imageAlt[index], model: "imagegen", createdAt: project.createdAt,
+      })),
       revisions: [{ id: revisionId, spec, summary: "Initial example", createdAt: project.createdAt, reworkStepIds: [] }],
       messages: [
         { id: `${id}-user`, role: "user" as const, text: prompt, photoIds: [], createdAt: project.createdAt },

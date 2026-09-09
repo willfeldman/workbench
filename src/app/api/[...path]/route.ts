@@ -30,6 +30,7 @@ import {
   type Job,
 } from "@/lib/project";
 import { queueDiagrams } from "@/lib/illustration-jobs";
+import { copyExample, publicExampleArtwork } from "@/lib/example-copies";
 import { queueEnrichment, switchToFast } from "@/lib/fast-mode";
 import { runWorkflow } from "@/lib/server/workflow";
 export const runtime = "nodejs";
@@ -57,7 +58,7 @@ async function present(p: Project) {
       if (item.path && allowed.has(item.path) && item.signedUrl && !item.error) urls.set(item.path, item.signedUrl);
     }
   }
-  for (const asset of assets) asset.url = asset.path ? urls.get(asset.path) : undefined;
+  for (const asset of assets) asset.url = asset.path ? urls.get(asset.path) : publicExampleArtwork(asset.url);
   return d;
 }
 
@@ -84,10 +85,19 @@ async function route(
             complete: Boolean(p.progress.finishedAt),
           })),
         });
-      if (req.method === "POST")
+      if (req.method === "POST") {
+        const body = z.object({ exampleId: z.string().max(80).optional() }).parse(await req.json());
+        if (body.exampleId) {
+          const copy = copyExample(owner, body.exampleId);
+          if (!copy) throw new HttpError(404, "Example project not found.");
+          // Reopen this person's saved copy, retaining any edits and progress.
+          const existing = (await listProjects(owner)).find(p => p.sourceExampleId === body.exampleId);
+          return NextResponse.json({ project: await present(existing ?? await createProject(copy)) });
+        }
         return NextResponse.json({
           project: await createProject(newProject(owner)),
         });
+      }
     }
     const projectId = z.string().uuid().parse(segments[1]);
     if (segments.length === 2 && req.method === "GET") {
