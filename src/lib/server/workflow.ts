@@ -19,6 +19,8 @@ import {
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import OpenAI from "openai";
+import { FatalError } from "workflow";
+import { ZodError } from "zod";
 import { assertJobCurrent, queueDiagrams, diagramProgress } from "../illustration-jobs";
 import { queueEnrichment, applyEnrichment } from "../fast-mode";
 async function state(owner: string, id: string, jobId: string, label: string) {
@@ -119,9 +121,22 @@ export async function guideStep(owner: string, id: string, jobId: string) {
   const p = await state(owner, id, jobId, "Working out the build");
   const j = p.jobs.find((x) => x.id === jobId)!;
   if (j.draft) return;
-  const draft = validateSpec(
-    await generateGuide(p, usage(owner, id, jobId), await images(p), j.speed === "fast"),
-  );
+  let generated;
+  try {
+    generated = await generateGuide(p, usage(owner, id, jobId), await images(p), j.speed === "fast");
+  } catch (error) {
+    if (error instanceof ZodError) throw new FatalError("The generated guide did not meet the project format requirements.");
+    throw error;
+  }
+  let draft;
+  try {
+    draft = validateSpec(generated);
+  } catch {
+    // A deterministic invalid draft must not spend four complete AI calls on
+    // the same request without any corrective context. Transient provider and
+    // persistence failures still retain the durable worker's retry behavior.
+    throw new FatalError("The generated guide failed its consistency checks.");
+  }
   await mutateProject(owner, id, (d) => {
     assertJobCurrent(d, jobId).draft = draft;
   });

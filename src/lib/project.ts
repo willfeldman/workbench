@@ -7,6 +7,9 @@ const id = z
   .regex(/^[a-zA-Z0-9_-]+$/);
 const text = z.string().max(12000);
 const vec = z.array(z.number().finite()).length(3);
+// Physical extents are not positions: even paper has a positive thickness.
+// Enforce this in generated JSON, before the post-generation validation.
+const dimensions = z.array(z.number().finite().positive().max(100000)).length(3);
 export const SourceSchema = z.object({
   url: z.string(),
   title: z.string(),
@@ -29,7 +32,7 @@ export const PartSchema = z.object({
   id,
   name: z.string(),
   materialId: id,
-  dimensionsMm: vec,
+  dimensionsMm: dimensions,
   quantity: z.number().int().positive(),
 });
 export const StepSchema = z.object({
@@ -56,7 +59,7 @@ export const SceneNodeSchema = z.object({
   shape: z.enum(["box", "cylinder", "sphere", "extrusion", "mesh"]),
   position: vec,
   rotation: vec,
-  size: vec,
+  size: dimensions,
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
   roughness: z.number().min(0).max(1),
   metalness: z.number().min(0).max(1),
@@ -76,7 +79,7 @@ export const SpecSchema = z.object({
   category: z.string(),
   difficulty: z.enum(["Beginner", "Intermediate", "Advanced"]),
   minutes: z.number().nonnegative(),
-  dimensionsMm: vec,
+  dimensionsMm: dimensions,
   budget: z.number().nonnegative().nullable(),
   constraints: z.array(z.string()),
   assumptions: z.array(z.string()),
