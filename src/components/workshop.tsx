@@ -8,6 +8,7 @@ import {
   ArrowUp,
   Clock3,
   Gauge,
+  Zap,
   Wallet,
   Plus,
   SquarePen,
@@ -46,6 +47,7 @@ import {
 import { Button } from "./ui/button";
 import { shoppingSource, stepStatus, essentialPrecautions } from "@/lib/build-display";
 import { exampleProject } from "@/lib/example";
+import { additionalExampleProjects } from "@/lib/additional-examples";
 import {
   activeJob,
   canComplete,
@@ -99,12 +101,15 @@ export default function Workbench({
   preview?: boolean;
   local?: boolean;
 }) {
+  const [examples] = useState(() => [exampleProject(), ...additionalExampleProjects()]);
+  const [examplePicker, setExamplePicker] = useState(false);
   const [project, setProject] = useState<Project | null>(null),
     [projects, setProjects] = useState<Summary[]>([]),
     [tab, setTab] = useState<Tab>("Preview"),
     [sidebar, setSidebar] = useState(true),
     [input, setInput] = useState(""),
     [sending, setSending] = useState(false),
+    [switchingFast, setSwitchingFast] = useState<string | null>(null),
     [draggingPhotos, setDraggingPhotos] = useState(false),
     [pendingPhotos, setPendingPhotos] = useState<string[]>([]),
     [toast, setToast] = useState(""),
@@ -122,6 +127,7 @@ export default function Workbench({
     bottom = useRef<HTMLDivElement>(null),
     uploadStep = useRef<string | null>(null),
     uploadBusy = useRef(false),
+    fastBusy = useRef(false),
     dragDepth = useRef(0),
     selectedId = useRef<string | null>(null);
   useEffect(() => {
@@ -164,7 +170,10 @@ export default function Workbench({
           },
           ...old.filter((x) => x.id !== p.id),
         ]);
-      } else localStorage.setItem("workshop:example", JSON.stringify(p));
+      } else {
+        localStorage.setItem(`workshop:example:${p.id}`, JSON.stringify(p));
+        setProjects((old) => old.map((item) => item.id === p.id ? { ...item, complete: Boolean(p.progress.finishedAt) } : item));
+      }
     },
     [preview],
   );
@@ -190,14 +199,10 @@ export default function Workbench({
   );
   useEffect(() => {
     if (preview) {
-      setProjects([
-        {
-          id: "example-planter",
-          title: "A home for your plants",
-          updatedAt: "",
-          complete: false,
-        },
-      ]);
+      setProjects(examples.map((p) => ({ id: p.id, title: p.title, updatedAt: p.updatedAt, complete: false })));
+      const requested = new URLSearchParams(window.location.search).get("example");
+      const sample = examples.find((p) => p.id === requested);
+      if (sample) adopt(savedExample(sample));
       setLoading(false);
       return;
     }
@@ -218,10 +223,17 @@ export default function Workbench({
     return () => {
       alive = false;
     };
-  }, [preview, openProject, notify]);
+  }, [preview, openProject, notify, examples, adopt]);
   const job = project ? activeJob(project) : undefined;
   const pollingJob = project?.jobs.findLast((j) => j.state === "queued" || j.state === "running");
-  const diagramJob = project?.jobs.findLast((j) => j.mode === "diagrams" && (j.state === "queued" || j.state === "running"));
+  const diagramJob = project?.jobs.findLast((j) => (j.mode === "diagrams" || j.mode === "enrichment") && (j.state === "queued" || j.state === "running"));
+  useEffect(() => {
+    if (project?.spec && !project.spec.scene && project.jobs.some((item) => item.mode === "message" && item.speed === "fast" && item.state === "complete")) {
+      setTab("Guide");
+      setMobilePane("workspace");
+    }
+    // Open the newly published guide once; background enrichment must not change tabs.
+  }, [project?.id, project?.currentRevisionId]);
   useEffect(() => {
     if (!project || preview || !pollingJob) return;
     const id = project.id;
@@ -302,27 +314,23 @@ export default function Workbench({
     localStorage.removeItem("workshop:last-project");
     textarea.current?.focus();
   }
-  function example() {
-    let p = exampleProject();
-    try {
-      const saved = localStorage.getItem("workshop:example");
-      if (saved) {
-        const previous = JSON.parse(saved);
-        p = {
-          ...p,
-          progress: previous.progress ?? p.progress,
-          units: previous.units ?? p.units,
-        };
-      }
-    } catch {}
+  function example(id = "example-planter") {
+    const sample = examples.find((p) => p.id === id) ?? examples[0];
     if (preview) {
-      adopt(p);
+      adopt(savedExample(sample));
       setTab("Preview");
-    } else window.open("/demo", "_blank");
+      setStepId(null);
+      setIllustrated(false);
+      setPendingPhotos([]);
+      setInput("");
+      setMobilePane("workspace");
+      if (window.matchMedia("(max-width:900px)").matches) setSidebar(false);
+    } else window.open(`/demo?example=${encodeURIComponent(sample.id)}`, "_blank", "noopener");
+    setExamplePicker(false);
   }
   async function send(
     text = input,
-    mode: "message" | "preview" | "illustration" | "diagrams" = "message",
+    mode: "message" | "preview" | "illustration" | "diagrams" | "enrichment" = "message",
   ) {
     if (preview) {
       notify(
@@ -393,6 +401,21 @@ export default function Workbench({
       adopt(p);
     } catch (e) {
       notify((e as Error).message);
+    }
+  }
+  async function useFastMode(target = job) {
+    if (!project || !target || target.mode !== "message" || fastBusy.current) return;
+    const projectId = project.id;
+    fastBusy.current = true;
+    setSwitchingFast(target.id);
+    try {
+      const { project: next } = await post(`/api/projects/${projectId}/actions`, { action: "fast", id: target.id });
+      if (selectedId.current === projectId) adopt(next);
+    } catch (error) {
+      if (selectedId.current === projectId) notify((error as Error).message);
+    } finally {
+      fastBusy.current = false;
+      setSwitchingFast(null);
     }
   }
   async function upload(files: FileList | File[] | null) {
@@ -547,7 +570,7 @@ export default function Workbench({
               <button
                 key={p.id}
                 className={project?.id === p.id ? "selected" : ""}
-                onClick={() => (preview ? example() : openProject(p.id))}
+                onClick={() => (preview ? example(p.id) : openProject(p.id))}
               >
                 <span>{p.title}</span>
                 {p.complete && <Check size={14} />}
@@ -777,6 +800,13 @@ export default function Workbench({
                         </div>
                       ))}
                     </details>
+                    {job?.mode === "message" && (
+                      job.speed === "fast" && !(job.state === "queued" && !job.workflowRunId && Date.now() - Date.parse(job.startedAt) > 60_000) ? <span className="fast-mode-status"><Zap size={13} aria-hidden="true" />Fast mode</span> :
+                      <Button variant="outline" size="sm" className="fast-mode-button" onClick={() => useFastMode()} disabled={switchingFast === job.id} title="Get the guide sooner. Sourcing and illustrations continue in the background.">
+                        {switchingFast === job.id ? <Loader2 size={13} className="spin" aria-hidden="true" /> : <Zap size={13} aria-hidden="true" />}
+                        {switchingFast === job.id ? "Switching…" : job.speed === "fast" ? "Retry fast mode" : "Use fast mode"}
+                      </Button>
+                    )}
                   </div>
                 )}
                 {!job && project?.jobs.at(-1)?.state === "failed" && (
@@ -785,8 +815,9 @@ export default function Workbench({
                     <Button
                       size="sm"
                       variant="outline"
+                      disabled={Boolean(switchingFast)}
                       onClick={() =>
-                        send(
+                        project.jobs.at(-1)?.speed === "fast" && project.jobs.at(-1)?.mode === "message" ? useFastMode(project.jobs.at(-1)) : send(
                           project.messages
                             .filter((m) => m.role === "user")
                             .at(-1)?.text ?? "",
@@ -919,9 +950,10 @@ export default function Workbench({
                       </button>
                     ))}
                   </div>
-                  <button className="explore-example" onClick={example}>
-                    Explore an example
-                  </button>
+                  <div className="example-links">
+                    <button className="explore-example" onClick={() => example()}>Explore an example</button>
+                    <button className="explore-example" onClick={() => setExamplePicker(true)}>More examples</button>
+                  </div>
                 </>
               ) : (
                 <div className="composer-note">
@@ -1079,8 +1111,7 @@ export default function Workbench({
                           }
                         >
                           <Wallet size={14} aria-hidden="true" />
-                          {cost?.unknown ? "From " : ""}
-                          {money(cost?.total ?? 0)} est.
+                          {cost?.unknown && !cost.total ? "Price varies" : `${cost?.unknown ? "From " : ""}${money(cost?.total ?? 0)} est.`}
                         </span>
                       </div>
                     </div>
@@ -1186,7 +1217,7 @@ export default function Workbench({
                           <div className="step-reveal-inner">
                             <div className="step-content">
                               <div className="step-layout">
-                                <StepDiagram step={s} project={project} onRetry={() => send("", "diagrams")} busy={Boolean(diagramJob)} />
+                                <StepDiagram step={s} project={project} onRetry={() => send("", "diagrams")} busy={Boolean(diagramJob)} hideMissing={preview} />
                                 <div className="step-detail">
                                   <StepResources step={s} spec={spec} onOpen={() => setTab("Materials")} />
                                   <StepInstructions step={s} />
@@ -1453,6 +1484,7 @@ export default function Workbench({
         const request = `Please adapt the project’s ${alternative.kind} choice: ${alternative.name}. ${alternativeText.trim()} Update the plan, affected instructions, quantities, sourcing, and preview as needed. Preserve completed work and owned or purchased items, and flag any work that needs review.`;
         setAlternative(null); setAlternativeText(""); send(request);
       }} busy={sending || Boolean(job)} />}
+      {examplePicker && <ExamplePicker examples={examples} onSelect={example} onClose={() => setExamplePicker(false)} />}
       {settings && (
         <div className="modal-scrim" onClick={() => setSettings(false)}>
           <section
@@ -1531,6 +1563,35 @@ function StepResources({ step, spec, onOpen }: { step: Step; spec: Spec; onOpen:
   return <div className="step-resources" aria-label="For this step">{resources.map(({ id, name, specification, Icon }) => <button key={id} onClick={onOpen} title={specification}><Icon size={15} aria-hidden="true" /><span>{name}</span></button>)}</div>;
 }
 
+function savedExample(sample: Project): Project {
+  const project = structuredClone(sample);
+  try {
+    const saved = localStorage.getItem(`workshop:example:${sample.id}`) ?? (sample.id === "example-planter" ? localStorage.getItem("workshop:example") : null);
+    if (saved) {
+      const previous = JSON.parse(saved);
+      if (previous.id === sample.id) {
+        project.progress = previous.progress ?? project.progress;
+        project.units = previous.units === "metric" ? "metric" : "imperial";
+        project.version = previous.version ?? project.version;
+      }
+    }
+  } catch { /* A fresh example remains available if browser storage is unavailable. */ }
+  return project;
+}
+
+function ExamplePicker({ examples, onSelect, onClose }: { examples: Project[]; onSelect: (id: string) => void; onClose: () => void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => { dialog.current?.showModal(); }, []);
+  const close = () => { dialog.current?.close(); onClose(); };
+  return <dialog ref={dialog} className="change-dialog example-picker" aria-label="Example projects" onCancel={(event) => { event.preventDefault(); close(); }} onClick={(event) => { if (event.target === event.currentTarget) close(); }}>
+    <div className="modal-heading"><h2>Example projects</h2><Button variant="ghost" size="icon" aria-label="Close examples" onClick={close}><X size={18} /></Button></div>
+    <div className="example-options">{examples.map((sample, index) => {
+      const Icon = index === 0 ? Leaf : index === 1 ? Box : Scissors;
+      return <button key={sample.id} onClick={() => { dialog.current?.close(); onSelect(sample.id); }}><Icon size={21} aria-hidden="true" /><span><strong>{sample.title}</strong><small>{sample.spec!.category} · {sample.spec!.minutes < 60 ? `${sample.spec!.minutes} min` : `${Number((sample.spec!.minutes / 60).toFixed(1))} hours`}</small></span></button>;
+    })}</div>
+  </dialog>;
+}
+
 function AlternativeDialog({ name, value, onChange, onClose, onSubmit, busy }: { name: string; value: string; onChange: (value: string) => void; onClose: () => void; onSubmit: () => void; busy: boolean }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => { dialog.current?.showModal(); }, []);
@@ -1567,11 +1628,13 @@ function StepDiagram({
   project,
   onRetry,
   busy = false,
+  hideMissing = false,
 }: {
   step: Step;
   project: Project;
   onRetry?: () => void;
   busy?: boolean;
+  hideMissing?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const imageButton = useRef<HTMLButtonElement>(null);
@@ -1587,7 +1650,7 @@ function StepDiagram({
         {expanded && <IllustrationDialog url={illustration.url} alt={illustration.alt} onClose={() => { setExpanded(false); imageButton.current?.focus(); }} />}
       </figure>
     );
-  if (!onRetry) return null;
+  if (!onRetry || hideMissing) return null;
   return (
     <div className="step-image-unavailable">
       {busy ? (

@@ -157,7 +157,10 @@ export type Job = {
   activities: Activity[];
   baseRevisionId: string | null;
   usage: { input: number; output: number };
-  mode: "message" | "preview" | "illustration" | "diagrams";
+  mode: "message" | "preview" | "illustration" | "diagrams" | "enrichment";
+  speed?: "standard" | "fast";
+  dispatchToken?: string;
+  supersedesJobId?: string;
   workflowRunId?: string;
   intent?: Intake;
   draft?: Spec;
@@ -266,7 +269,7 @@ export function totals(
   );
 }
 export function activeJob(p: Project) {
-  return p.jobs.findLast((j) => j.mode !== "diagrams" && (j.state === "queued" || j.state === "running"));
+  return p.jobs.findLast((j) => !["diagrams", "enrichment"].includes(j.mode) && (j.state === "queued" || j.state === "running"));
 }
 export function safePublicUrl(raw: string) {
   try {
@@ -412,6 +415,13 @@ export function stepVisualSignature(spec: Spec, stepId: string) {
   });
 }
 export function publishRevision(p: Project, r: Revision) {
+  for (const job of p.jobs) {
+    if (["enrichment", "diagrams"].includes(job.mode) && ["queued", "running"].includes(job.state) && job.baseRevisionId !== r.id) {
+      job.state = "cancelled";
+      job.stage = "Project updated";
+      job.finishedAt = new Date().toISOString();
+    }
+  }
   const previous = p.spec;
   if (previous)
     for (const image of [...(p.stepImages ?? [])]) {

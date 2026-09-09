@@ -561,6 +561,14 @@ textarea {
   color: #9da191;
   font-size: 11px;
 }
+.example-links { display: flex; justify-content: center; gap: 22px; flex-wrap: wrap; }
+.example-links .explore-example { margin-inline: 0; }
+.example-options { display: grid; gap: 7px; margin-top: 18px; }
+.example-options > button { display: flex; align-items: center; gap: 14px; text-align: left; padding: 15px 12px; border-radius: var(--radius-control); }
+.example-options > button:hover { background: #f3f4ee; }
+.example-options > button > svg { flex-shrink: 0; color: #818977; }
+.example-options strong { display: block; font-size: 13px; font-weight: 500; }
+.example-options small { display: block; font-size: 11px; margin-top: 5px; color: #888d7e; }
 .activity {
   font-size: 11px;
   color: #888d7e;
@@ -580,6 +588,18 @@ textarea {
   margin: 13px 0 0 3px;
   font-size: 10px;
   color: #9c9f94;
+}
+.fast-mode-button {
+  margin-top: 12px;
+  gap: 6px;
+  font-size: 11px;
+}
+.fast-mode-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 11px;
+  color: var(--muted-foreground, #777c70);
 }
 .thinking-dot {
   display: inline-block;
@@ -2112,6 +2132,7 @@ textarea {
 .guide { container-type: inline-size; }
 .step-layout { display: grid; grid-template-columns: minmax(120px, 32%) minmax(0, 1fr); gap: 20px; align-items: start; }
 .step-layout .step-illustration { margin: 0; }
+.step-layout:has(> .step-detail:only-child) { grid-template-columns: minmax(0, 1fr); }
 .step-layout .step-image-unavailable { padding: 18px 12px; background: #f7f7f3; border-radius: var(--radius-control); align-items: flex-start; }
 .step-detail { min-width: 0; }
 .step-image-open { display: block; width: 100%; position: relative; cursor: zoom-in; }

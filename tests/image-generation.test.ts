@@ -6,6 +6,7 @@ import {
   IllustrationGenerationError,
   IllustrationReviewError,
   illustrationBudget,
+  illustrateWithOneCorrection,
   ILLUSTRATION_TIMEOUTS,
   stepImagePrompt,
   stepVisualBrief,
@@ -28,6 +29,8 @@ test("the visual brief isolates an early action while retaining assembly constra
   const prompt = stepImagePrompt(brief);
   assert.ok(prompt.includes(STEP_VISUAL_CONTRACT));
   assert.ok(STEP_REVIEW_PROMPT.includes(STEP_VISUAL_CONTRACT));
+  assert.match(STEP_REVIEW_PROMPT, /equivalent cutting direction\/order are not errors/);
+  assert.match(STEP_VISUAL_CONTRACT, /Do not infer exact scale/);
 });
 
 test("leg illustrations retain the prerequisite walls that the legs attach to", () => {
@@ -36,7 +39,11 @@ test("leg illustrations retain the prerequisite walls that the legs attach to", 
   assert.ok(brief.referenceParts.some((p) => p.id === "leg-fl"));
   assert.ok(brief.referenceParts.some((p) => p.id === "front"));
   assert.ok(brief.referenceParts.some((p) => p.id === "base"));
+  assert.ok(brief.spatialEvidence?.find((part) => part.partId === "base")?.localVertices?.length, "The notched mesh is carried rather than replaced by a bounding box");
+  assert.match(brief.composition, /interior-facing orthographic/);
   assert.match(brief.contextOnly.fullInstructions, /20 mm/);
+  assert.equal(brief.tools.length, 0, "Insertion does not require clamps or drills used later");
+  assert.ok(brief.contextOnly.preparedFeatures.some((f) => /36 × 36 mm notch/.test(f.feature)));
   assert.doesNotMatch(brief.focusInstruction, /Drill pilot holes/);
 });
 
@@ -111,4 +118,62 @@ test("discovery and image requests have short limits within one total deadline",
     return true;
   });
   assert.ok(ILLUSTRATION_TIMEOUTS.discovery < ILLUSTRATION_TIMEOUTS.generation);
+});
+
+
+test("focused tool selection does not carry drills into preparation or omit sanding", () => {
+  const spec = exampleProject().spec!;
+  const prepare = stepVisualBrief(spec, spec.steps[0]);
+  assert.deepEqual(prepare.tools, []);
+  const finish = stepVisualBrief(spec, spec.steps.find((s) => s.id === "finish-step")!);
+  assert.ok(finish.tools.some((t) => t.id === "sand"));
+});
+
+test("one corrective edit receives the actual rejected image and is reviewed again", async () => {
+  const original = { pixels: "rejected original" };
+  const corrected = { pixels: "corrected original" };
+  const calls: string[] = [];
+  const result = await illustrateWithOneCorrection(
+    async () => { calls.push("generate"); return original; },
+    async (candidate) => {
+      calls.push("review");
+      if (candidate === original) throw new IllustrationReviewError("connection: remove the invented upper block");
+      assert.equal(candidate, corrected);
+      return { matchesStep: true, description: "One continuous leg.", issues: [] };
+    },
+    async (candidate, defects) => {
+      calls.push("edit");
+      assert.equal(candidate, original);
+      assert.match(defects, /invented upper block/);
+      return corrected;
+    },
+  );
+  assert.deepEqual(calls, ["generate", "review", "edit", "review"]);
+  assert.equal(result.attempts, 2);
+  assert.equal(result.candidate, corrected);
+});
+
+test("a failed correction is terminal and never starts another fresh generation", async () => {
+  let generations = 0, edits = 0;
+  await assert.rejects(() => illustrateWithOneCorrection(
+    async () => { generations++; return "pixels"; },
+    async () => { throw new IllustrationReviewError("geometry: the notch is blocked"); },
+    async () => { edits++; return "edited pixels"; },
+  ), (error: unknown) => {
+    assert.ok(error instanceof IllustrationReviewError);
+    assert.equal(error.retryExhausted, true);
+    return true;
+  });
+  assert.equal(generations, 1);
+  assert.equal(edits, 1);
+});
+
+test("provider failures do not trigger a quality edit or extra model spend", async () => {
+  let edits = 0;
+  await assert.rejects(() => illustrateWithOneCorrection(
+    async () => "pixels",
+    async () => { throw new IllustrationGenerationError("review", "timeout", "Timed out"); },
+    async () => { edits++; return "edited"; },
+  ), IllustrationGenerationError);
+  assert.equal(edits, 0);
 });

@@ -20,6 +20,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import OpenAI from "openai";
 import { assertJobCurrent, queueDiagrams, diagramProgress } from "../illustration-jobs";
+import { queueEnrichment, applyEnrichment } from "../fast-mode";
 async function state(owner: string, id: string, jobId: string, label: string) {
   return mutateProject(owner, id, (p) => {
     const j = assertJobCurrent(p, jobId);
@@ -77,7 +78,7 @@ export async function intentStep(owner: string, id: string, jobId: string) {
   if (existing.intent)
     return ["clarify", "answer"].includes(existing.intent.action)
       ? "done"
-      : existing.mode;
+      : existing.speed === "fast" && existing.mode === "message" ? "fast" : existing.mode;
   const p = await state(owner, id, jobId, "Understanding your project");
   const intent =
     existing.mode !== "message"
@@ -88,7 +89,7 @@ export async function intentStep(owner: string, id: string, jobId: string) {
           title: p.title,
           assumptions: [],
         }
-      : await interpret(p, usage(owner, id, jobId), await images(p));
+      : await interpret(p, usage(owner, id, jobId), await images(p), existing.speed === "fast");
   const done = ["clarify", "answer"].includes(intent.action);
   await mutateProject(owner, id, (d) => {
     const j = d.jobs.find((x) => x.id === jobId)!;
@@ -111,7 +112,7 @@ export async function intentStep(owner: string, id: string, jobId: string) {
       j.finishedAt = new Date().toISOString();
     }
   });
-  return done ? "done" : existing.mode;
+  return done ? "done" : existing.speed === "fast" && existing.mode === "message" ? "fast" : existing.mode;
 }
 export async function guideStep(owner: string, id: string, jobId: string) {
   "use step";
@@ -119,7 +120,7 @@ export async function guideStep(owner: string, id: string, jobId: string) {
   const j = p.jobs.find((x) => x.id === jobId)!;
   if (j.draft) return;
   const draft = validateSpec(
-    await generateGuide(p, usage(owner, id, jobId), await images(p)),
+    await generateGuide(p, usage(owner, id, jobId), await images(p), j.speed === "fast"),
   );
   await mutateProject(owner, id, (d) => {
     assertJobCurrent(d, jobId).draft = draft;
@@ -266,7 +267,7 @@ export async function diagramStep(
       job.heartbeatAt = new Date().toISOString();
     });
     await recordEvent(owner, id, "step_image_failed", { stepId, stage: error instanceof IllustrationGenerationError ? error.stage : "storage", code: error instanceof IllustrationGenerationError ? error.code : "unavailable", corrected: Boolean(correction) });
-    if (error instanceof IllustrationReviewError) return error.message;
+    if (error instanceof IllustrationReviewError && !error.retryExhausted) return error.message;
   }
 }
 export async function finishDiagramsStep(
@@ -290,7 +291,7 @@ export async function publishStep(owner: string, id: string, jobId: string) {
   "use step";
   const current = await getProject(owner, id);
   if (current.jobs.find((x) => x.id === jobId)?.state === "complete")
-    return current.jobs.find(j => j.id === jobId + "-diagrams" && ["queued", "running"].includes(j.state) && j.baseRevisionId === current.currentRevisionId)?.id ?? null;
+    return current.jobs.find(j => [jobId + "-diagrams", jobId + "-enrichment"].includes(j.id) && ["queued", "running"].includes(j.state) && j.baseRevisionId === current.currentRevisionId)?.id ?? null;
   await state(owner, id, jobId, "Checking the pieces fit together");
   const published = await mutateProject(owner, id, (d) => {
     const j = assertJobCurrent(d, jobId);
@@ -312,7 +313,8 @@ export async function publishStep(owner: string, id: string, jobId: string) {
     if (inferred) d.proposal = r;
     else {
       publishRevision(d, r);
-      queueDiagrams(d, jobId + "-diagrams", j.workflowRunId);
+      if (j.speed === "fast") queueEnrichment(d, jobId + "-enrichment", j.workflowRunId);
+      else queueDiagrams(d, jobId + "-diagrams", j.workflowRunId);
     }
     if (!d.messages.some((m) => m.id === jobId + "-reply"))
       d.messages.push({
@@ -326,7 +328,9 @@ export async function publishStep(owner: string, id: string, jobId: string) {
               ? "The preparation guide is ready. This project needs qualified professional input before execution."
               : d.revisions.length > 1
                 ? "I’ve updated the project. You can review the changes or undo this revision."
-                : "Your project is ready. The complete guide, materials, and preview are beside this conversation.",
+                : j.speed === "fast"
+                  ? "Your guide is ready. Sources, the preview, and illustrations will appear as they finish."
+                  : "Your project is ready. The complete guide, materials, and preview are beside this conversation.",
         photoIds: [],
         createdAt: new Date().toISOString(),
       });
@@ -337,7 +341,42 @@ export async function publishStep(owner: string, id: string, jobId: string) {
     delete j.draft;
   });
   await recordEvent(owner, id, "generation_complete", { jobId });
-  return published.jobs.find(j => j.id === jobId + "-diagrams")?.id ?? null;
+  return published.jobs.find(j => [jobId + "-diagrams", jobId + "-enrichment"].includes(j.id))?.id ?? null;
+}
+export async function enrichmentStep(owner: string, id: string, jobId: string, kind: "sources" | "scene") {
+  "use step";
+  const p = await state(owner, id, jobId, "Adding sources and preview");
+  if (!p.spec) throw new Error("Missing guide");
+  const spec = structuredClone(p.spec);
+  if (kind === "sources") {
+    try {
+      const sourced = await sourceItems(spec, usage(owner, id, jobId));
+      await mutateProject(owner, id, d => applyEnrichment(d, jobId, sourced, kind));
+    } catch {
+      // Sourcing is optional enrichment; the checked physical guide remains usable.
+      await state(owner, id, jobId, "Guide ready · some retailer sources unavailable");
+    }
+  } else {
+    try {
+      spec.scene = validateScene(await generateScene(spec, usage(owner, id, jobId)), spec);
+      spec.sceneError = null;
+    } catch {
+      spec.scene = null;
+      spec.sceneError = "The preview could not finish. Your guide is ready; you can retry the preview.";
+    }
+    await mutateProject(owner, id, d => applyEnrichment(d, jobId, spec, kind));
+  }
+}
+export async function finishEnrichmentStep(owner: string, id: string, jobId: string) {
+  "use step";
+  const p = await mutateProject(owner, id, d => {
+    const job = assertJobCurrent(d, jobId);
+    queueDiagrams(d, jobId + "-diagrams", job.workflowRunId);
+    job.state = "complete";
+    job.stage = "Guide ready";
+    job.finishedAt = new Date().toISOString();
+  });
+  return p.jobs.find(job => job.id === jobId + "-diagrams")?.id ?? null;
 }
 export async function illustrationStep(
   owner: string,
@@ -413,13 +452,19 @@ export async function runWorkflow(owner: string, id: string, jobId: string) {
     const mode = await intentStep(owner, id, jobId);
     if (mode === "done") return;
     if (mode === "illustration") { await illustrationStep(owner, id, jobId); return; }
-    if (mode !== "diagrams") {
-      if (mode === "message") {
+    if (mode !== "diagrams" && mode !== "enrichment") {
+      if (mode === "message" || mode === "fast") {
         await guideStep(owner, id, jobId);
-        await sourcingStep(owner, id, jobId);
+        if (mode !== "fast") await sourcingStep(owner, id, jobId);
       }
-      await sceneStep(owner, id, jobId);
+      if (mode !== "fast") await sceneStep(owner, id, jobId);
       const next = await publishStep(owner, id, jobId);
+      if (!next) return;
+      activeId = next;
+    }
+    if (mode === "fast" || mode === "enrichment") {
+      await Promise.all([enrichmentStep(owner, id, activeId, "sources"), enrichmentStep(owner, id, activeId, "scene")]);
+      const next = await finishEnrichmentStep(owner, id, activeId);
       if (!next) return;
       activeId = next;
     }

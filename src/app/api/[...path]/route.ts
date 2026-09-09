@@ -30,6 +30,7 @@ import {
   type Job,
 } from "@/lib/project";
 import { queueDiagrams } from "@/lib/illustration-jobs";
+import { queueEnrichment, switchToFast } from "@/lib/fast-mode";
 import { runWorkflow } from "@/lib/server/workflow";
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -116,8 +117,9 @@ async function route(
           photoIds: z.array(z.string().uuid()).max(4).default([]),
           requestId: z.string().uuid(),
           mode: z
-            .enum(["message", "preview", "illustration", "diagrams"])
+            .enum(["message", "preview", "illustration", "diagrams", "enrichment"])
             .default("message"),
+          speed: z.enum(["standard", "fast"]).default("standard"),
         })
         .parse(await req.json());
       if (body.mode === "message" && !body.text.trim() && !body.photoIds.length)
@@ -125,7 +127,7 @@ async function route(
       const before = await getProject(owner, projectId);
       const old = before.jobs.find((j) => j.requestId === body.requestId);
       if (old) return NextResponse.json({ project: await present(before) });
-      if (body.mode === "diagrams" && before.jobs.some(j => j.mode === "diagrams" && j.baseRevisionId === before.currentRevisionId && ["queued", "running"].includes(j.state)))
+      if (["diagrams", "enrichment"].includes(body.mode) && before.jobs.some(j => j.mode === body.mode && j.baseRevisionId === before.currentRevisionId && ["queued", "running"].includes(j.state)))
         return NextResponse.json({ project: await present(before) });
       if (activeJob(before))
         throw new HttpError(
@@ -141,7 +143,7 @@ async function route(
       const jobId = crypto.randomUUID();
       let p = await mutateProject(owner, projectId, (d) => {
         if (d.jobs.some((j) => j.requestId === body.requestId)) return;
-        if (body.mode === "diagrams" && d.jobs.some(j => j.mode === "diagrams" && j.baseRevisionId === d.currentRevisionId && ["queued", "running"].includes(j.state))) return;
+        if (["diagrams", "enrichment"].includes(body.mode) && d.jobs.some(j => j.mode === body.mode && j.baseRevisionId === d.currentRevisionId && ["queued", "running"].includes(j.state))) return;
         if (activeJob(d))
           throw new HttpError(409, "A request is already running.");
         if (body.photoIds.some((id) => !d.photos.some((ph) => ph.id === id)))
@@ -168,6 +170,7 @@ async function route(
           baseRevisionId: d.currentRevisionId,
           usage: { input: 0, output: 0 },
           mode: body.mode,
+          speed: body.speed,
         });
       });
       if (!p.jobs.some((j) => j.id === jobId))
@@ -212,11 +215,58 @@ async function route(
             "restore",
             "finish",
             "cancel",
+            "fast",
           ]),
           id: z.string().optional(),
           value: z.union([z.boolean(), z.string()]).optional(),
         })
         .parse(await req.json());
+      if (b.action === "fast") {
+        if (!b.id) throw new HttpError(400, "Choose the running request.");
+        const token = crypto.randomUUID();
+        let p = await mutateProject(owner, projectId, d => {
+          try { switchToFast(d, b.id!, token); }
+          catch { throw new HttpError(409, "This request has already finished or changed."); }
+        });
+        const job = p.jobs.find(j => j.dispatchToken === token);
+        if (!job) return NextResponse.json({ project: await present(p) });
+        // Invalidate the old writes before cancelling its durable execution. A late
+        // provider response cannot replace the fast draft, even if cancellation fails.
+        const old = p.jobs.find(j => j.id === job.supersedesJobId);
+        if (!localMode() && old?.workflowRunId) {
+          try {
+            await Promise.race([getRun(old.workflowRunId).cancel(), new Promise((_, reject) => setTimeout(() => reject(new Error("Cancellation timed out")), 3000))]);
+          } catch {}
+        }
+        if (localMode()) after(() => runWorkflow(owner, projectId, job.id));
+        else {
+          try {
+            const handle = await start(projectWorkflow, [owner, projectId, job.id]);
+            p = await mutateProject(owner, projectId, d => {
+              const current = d.jobs.find(j => j.id === job.id)!;
+              if (current.dispatchToken === token && !["cancelled", "failed"].includes(current.state)) {
+                current.workflowRunId = handle.runId;
+                for (const child of d.jobs) {
+                  if (child.id.startsWith(current.id + "-enrichment") && !child.workflowRunId) child.workflowRunId = handle.runId;
+                }
+              }
+            });
+            if (p.jobs.find(j => j.id === job.id)?.workflowRunId !== handle.runId) {
+              try { await getRun(handle.runId).cancel(); } catch {}
+            }
+          } catch {
+            p = await mutateProject(owner, projectId, d => {
+              const current = d.jobs.find(j => j.id === job.id)!;
+              if (current.dispatchToken !== token || !["queued", "running"].includes(current.state)) return;
+              current.state = "failed";
+              current.error = "Fast mode could not start. Your saved project is safe; please retry.";
+              current.finishedAt = new Date().toISOString();
+            });
+          }
+        }
+        await recordEvent(owner, projectId, "generation_fast_mode", { jobId: job.id });
+        return NextResponse.json({ project: await present(p) }, { status: 202 });
+      }
       const diagramJobId = crypto.randomUUID();
       let p = await mutateProject(owner, projectId, (d) => {
         if (
@@ -289,7 +339,10 @@ async function route(
             reworkStepIds: changedCompletedSteps(d, target.spec),
           });
         }
-        if (["accept", "undo", "restore"].includes(b.action)) queueDiagrams(d, diagramJobId);
+        if (["accept", "undo", "restore"].includes(b.action)) {
+          if (b.action === "accept" && !d.spec?.scene) queueEnrichment(d, diagramJobId);
+          else queueDiagrams(d, diagramJobId);
+        }
         if (b.action === "finish") {
           if (
             !d.spec ||
